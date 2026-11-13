@@ -1,0 +1,34 @@
+{
+  "name": "business-memory-ai",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AI-powered WhatsApp bookkeeping and business OS for Indian micro-sellers",
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "workspaces": [
+    "shared",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev --workspace @bma/backend",
+    "dev:memory": "npm run dev:memory --workspace @bma/backend",
+    "dev:web": "npm run dev --workspace @bma/frontend",
+    "build": "npm run build --workspace @bma/shared && npm run build --workspace @bma/backend && npm run build --workspace @bma/frontend",
+    "typecheck": "npm run typecheck --workspace @bma/shared && npm run typecheck --workspace @bma/backend && npm run typecheck --workspace @bma/frontend",
+    "test": "npm run test --workspace @bma/shared && npm run test --workspace @bma/backend",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0"
+  }
+}
