@@ -124,7 +124,8 @@ Mapping each Phase 3 checklist ID to the test that covers it. "NOT COVERED" mean
 - **Covered:** 12 items (A1, A2, A3, B9, C6, D1, D3, D4, D5, E5, I2, I3, I4, J1)
 - **NOT COVERED:** 48 items
 - **New tests in Phase 3:** 10 (media: 5, webhookSignature: 4, phase3: 6 = 15 total, but 6 in phase3 includes 3 claim + 1 ordering + 1 status + 1 outbound = 6)
-- **Total test count:** 89 (up from 73 in Phase 2, +16 new tests)
+- **Total test count:** 94 (up from 89 in Phase 3, +5 new tests)
+- **New tests added:** webhook.test.ts (2 tests: persistence idempotency), contract.test.ts (2 tests: simulator provider, sendText contract)
 
 ### Reconciliation
 
