@@ -1,20 +1,22 @@
 /**
  * Media fetch with SSRF protection.
  *
- * Only Meta domains are allowed. Size and type limits enforced.
- * Magic-byte check prevents extension spoofing.
+ * Only Meta domains are allowed. DNS is resolved and private/loopback/link-local
+ * addresses are rejected. Redirects are disallowed (or re-validated on each hop).
+ * Size and type limits enforced. Magic-byte check prevents extension spoofing.
  */
+
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 
 const ALLOWED_META_HOSTS = [
   "graph.facebook.com",
   "lookaside.fbsbx.com",
-  "scontent.xx.fbcdn.net",
-  "scontent-iad3-1.xx.fbcdn.net",
 ];
 
 const MAX_SIZE_BYTES: Record<string, number> = {
-  audio: 16 * 1024 * 1024, // 16 MB
-  image: 5 * 1024 * 1024,  // 5 MB
+  audio: 16 * 1024 * 1024,
+  image: 5 * 1024 * 1024,
   document: 16 * 1024 * 1024,
   video: 16 * 1024 * 1024,
 };
@@ -43,7 +45,29 @@ export class MediaFetchError extends Error {
   }
 }
 
-export function validateMediaUrl(url: string): void {
+function isPrivateIP(ip: string): boolean {
+  if (isIP(ip) === 4) {
+    const parts = ip.split(".").map(Number);
+    if (parts[0] === 10) return true;
+    if (parts[0] === 172 && parts[1] !== undefined && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 127) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 0) return true;
+    return false;
+  }
+  if (isIP(ip) === 6) {
+    const lower = ip.toLowerCase();
+    if (lower === "::1") return true;
+    if (lower.startsWith("fe80:")) return true;
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+    if (lower.startsWith("::ffff:127.")) return true;
+    return false;
+  }
+  return true; // unknown format → reject
+}
+
+export async function validateMediaUrl(url: string): Promise<void> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -55,23 +79,26 @@ export function validateMediaUrl(url: string): void {
     throw new MediaFetchError("MEDIA_INVALID_URL", "media URL must use HTTPS");
   }
 
-  if (!ALLOWED_META_HOSTS.some((host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`))) {
-    throw new MediaFetchError("MEDIA_SSRF_BLOCKED", "media URL must point to a Meta domain");
+  if (!ALLOWED_META_HOSTS.some((host) => parsed.hostname === host)) {
+    throw new MediaFetchError("MEDIA_SSRF_BLOCKED", "media URL must point to an allowed Meta domain");
   }
 
-  // Block private IP ranges even if hostname resolves to them
-  const hostname = parsed.hostname;
-  if (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "0.0.0.0" ||
-    hostname.startsWith("10.") ||
-    hostname.startsWith("192.168.") ||
-    hostname.startsWith("172.") ||
-    hostname === "169.254.169.254" ||
-    hostname.startsWith("file:")
-  ) {
-    throw new MediaFetchError("MEDIA_SSRF_BLOCKED", "media URL must not point to a private or internal address");
+  // Resolve DNS and reject private/loopback/link-local addresses
+  let addresses: { address: string; family: number }[];
+  try {
+    addresses = await lookup(parsed.hostname, { all: true });
+  } catch {
+    throw new MediaFetchError("MEDIA_DNS_FAILED", "could not resolve media URL hostname");
+  }
+
+  if (addresses.length === 0) {
+    throw new MediaFetchError("MEDIA_DNS_FAILED", "no addresses resolved for hostname");
+  }
+
+  for (const addr of addresses) {
+    if (isPrivateIP(addr.address)) {
+      throw new MediaFetchError("MEDIA_SSRF_BLOCKED", `resolved address ${addr.address} is private or internal`);
+    }
   }
 }
 
@@ -97,7 +124,7 @@ export function validateMimeType(mimeType: string, mediaType: string): void {
 
 export function validateMagicBytes(buffer: Buffer, mimeType: string): void {
   const expected = MAGIC_BYTES[mimeType];
-  if (!expected) return; // no magic bytes defined for this type
+  if (!expected) return;
   if (buffer.length < expected.length) {
     throw new MediaFetchError("MEDIA_MAGIC_MISMATCH", "file too short for magic-byte check");
   }
@@ -106,4 +133,35 @@ export function validateMagicBytes(buffer: Buffer, mimeType: string): void {
       throw new MediaFetchError("MEDIA_MAGIC_MISMATCH", "file magic bytes do not match declared MIME type");
     }
   }
+}
+
+/**
+ * Fetch media from a Meta URL with SSRF protection.
+ * Redirects are disallowed (redirect: "error").
+ */
+export async function fetchMedia(
+  url: string,
+  accessToken: string,
+  mediaType: string,
+): Promise<{ buffer: Buffer; mimeType: string; size: number }> {
+  await validateMediaUrl(url);
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    redirect: "error", // disallow redirects
+  });
+
+  if (!response.ok) {
+    throw new MediaFetchError("MEDIA_FETCH_FAILED", `HTTP ${response.status}`);
+  }
+
+  const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
+  validateMimeType(mimeType, mediaType);
+
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  validateMediaSize(buffer.length, mediaType);
+  validateMagicBytes(buffer, mimeType);
+
+  return { buffer, mimeType, size: buffer.length };
 }

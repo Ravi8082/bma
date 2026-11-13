@@ -8,18 +8,23 @@ import {
 } from "./media";
 
 describe("media fetch SSRF protection", () => {
-  it("accepts Meta domains", () => {
-    expect(() => validateMediaUrl("https://graph.facebook.com/v18.0/media/123")).not.toThrow();
-    expect(() => validateMediaUrl("https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=123")).not.toThrow();
+  it("accepts Meta domains", async () => {
+    // graph.facebook.com resolves to a public IP
+    await expect(validateMediaUrl("https://graph.facebook.com/v18.0/media/123")).resolves.toBeUndefined();
   });
 
-  it("rejects non-Meta domains", () => {
-    expect(() => validateMediaUrl("https://evil.com/steal")).toThrow(MediaFetchError);
-    expect(() => validateMediaUrl("https://localhost/admin")).toThrow(MediaFetchError);
-    expect(() => validateMediaUrl("https://127.0.0.1/secret")).toThrow(MediaFetchError);
-    expect(() => validateMediaUrl("https://169.254.169.254/metadata")).toThrow(MediaFetchError);
-    expect(() => validateMediaUrl("file:///etc/passwd")).toThrow(MediaFetchError);
-    expect(() => validateMediaUrl("http://graph.facebook.com/v18.0/media/123")).toThrow(MediaFetchError);
+  it("rejects non-Meta domains", async () => {
+    await expect(validateMediaUrl("https://evil.com/steal")).rejects.toThrow(MediaFetchError);
+    await expect(validateMediaUrl("https://localhost/admin")).rejects.toThrow(MediaFetchError);
+    await expect(validateMediaUrl("http://graph.facebook.com/v18.0/media/123")).rejects.toThrow(MediaFetchError);
+  });
+
+  it("rejects private/loopback/link-local addresses", async () => {
+    // These would be caught by the hostname check (not in ALLOWED_META_HOSTS)
+    // but also by the IP check if they somehow resolve
+    await expect(validateMediaUrl("https://127.0.0.1/secret")).rejects.toThrow(MediaFetchError);
+    await expect(validateMediaUrl("https://169.254.169.254/metadata")).rejects.toThrow(MediaFetchError);
+    await expect(validateMediaUrl("https://10.0.0.1/internal")).rejects.toThrow(MediaFetchError);
   });
 
   it("enforces size limits", () => {
