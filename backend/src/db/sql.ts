@@ -47,6 +47,10 @@ const ALLOWED_IDENTIFIERS: ReadonlySet<string> = new Set([
   "export_requests",
   "deletion_requests",
   "login_index",
+  "inbox_messages",
+  "outbox_events",
+  "media_assets",
+  "message_status_updates",
   // columns used by generic helpers
   "id",
   "shop_id",

@@ -51,6 +51,16 @@ describe("field encryption", () => {
     expect(() => decryptField(ct, keyRef)).toThrow();
   });
 
+  it("binds ciphertext to AAD context (shop, table, column)", () => {
+    const aad = { shopId: "shop-1", table: "users", column: "phone_enc" };
+    const ct = encryptField("secret", keyRef, 1, aad);
+    expect(decryptField(ct, keyRef, aad)).toBe("secret");
+    // Wrong AAD → decrypt fails
+    expect(() => decryptField(ct, keyRef, { shopId: "shop-2", table: "users", column: "phone_enc" })).toThrow();
+    expect(() => decryptField(ct, keyRef, { shopId: "shop-1", table: "customers", column: "phone_enc" })).toThrow();
+    expect(() => decryptField(ct, keyRef, { shopId: "shop-1", table: "users", column: "address_enc" })).toThrow();
+  });
+
   it("supports key rotation (old version still decrypts)", () => {
     const oldCt = encryptField("old data", keyRef, 1);
     const newCt = encryptField("new data", keyRef, 2);

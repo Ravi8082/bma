@@ -133,6 +133,13 @@ const envSchema = z
         message: "CSRF_SECRET must be at least 32 characters",
       });
     }
+    if (value.FIELD_ENCRYPTION_KEY_REF === "dev-local-kms-key") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["FIELD_ENCRYPTION_KEY_REF"],
+        message: "FIELD_ENCRYPTION_KEY_REF must be a KMS key reference in production, not the default local key",
+      });
+    }
     if (!value.WHATSAPP_APP_SECRET || !value.WHATSAPP_ACCESS_TOKEN || !value.WHATSAPP_PHONE_NUMBER_ID) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
