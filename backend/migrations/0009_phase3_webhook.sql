@@ -4,7 +4,8 @@
 -- Lease-based inbox replaces session-level advisory locks. All shop-owned tables
 -- carry shop_id NOT NULL and FORCE RLS.
 
--- Inbox: persisted raw WhatsApp messages, claimed by workers with leases.
+-- Sequence for inbox arrival ordering.
+CREATE SEQUENCE IF NOT EXISTS app.inbox_arrival_seq START 1;
 CREATE TABLE app.inbox_messages (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   shop_id           uuid NOT NULL REFERENCES app.shops(id) ON DELETE RESTRICT,
