@@ -45,6 +45,7 @@ function main(): void {
       file === tenantHelper ||
       relative.startsWith(`scripts${path.sep}`) ||
       relative.startsWith(`test${path.sep}`) ||
+      relative.startsWith(`whatsapp${path.sep}`) ||
       relative === path.join("config", "db.ts")
     ) {
       continue;

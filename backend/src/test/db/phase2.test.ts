@@ -35,7 +35,7 @@ async function createShopAndOwner(shopId: string, phone: string): Promise<{ user
 describe("SECURITY DEFINER: resolve_seller_by_phone", () => {
   it("returns shop_id, user_id, role for a registered phone", async () => {
     const shopId = randomUUID();
-    const { userId, bidx } = await createShopAndOwner(shopId, "9876543210");
+    const { userId, bidx } = await createShopAndOwner(shopId, `98765${Math.floor(Math.random() * 100000).toString().padStart(5, "0")}`);
 
     // Call the SECURITY DEFINER function as bma_app (via raw client, no tenant context)
     const { getPool } = await import("../../config/db");
@@ -85,7 +85,7 @@ describe("SECURITY DEFINER: resolve_seller_by_phone", () => {
 
 describe("concurrency: one shop per phone", () => {
   it("creates exactly one shop for concurrent first messages", async () => {
-    const phone = "9123456789";
+    const phone = `91234${Math.floor(Math.random() * 100000).toString().padStart(5, "0")}`;
     const normalised = normalisePhone(phone);
     const bidx = phoneBlindIndex(normalised, BLIND_INDEX_KEY);
 
@@ -133,7 +133,7 @@ describe("consent versioning", () => {
         sql`INSERT INTO app.shops (id, name, slug, preset_key) VALUES (${shopId}, 'Consent shop', ${`t-${shopId.slice(0, 8)}`}, 'FLOWER_SELLER')`,
       );
       const userId = randomUUID();
-      const bidx = phoneBlindIndex("+919988776655", BLIND_INDEX_KEY);
+      const bidx = phoneBlindIndex(`+919988${Math.floor(Math.random() * 100000).toString().padStart(5, "0")}`, BLIND_INDEX_KEY);
       await db.execute(
         sql`INSERT INTO app.users (id, shop_id, role, name, phone_enc, phone_bidx, key_version, status)
              VALUES (${userId}, ${shopId}, 'OWNER', 'Owner', ${Buffer.from("enc")}, ${bidx}, 1, 'ACTIVE')`,

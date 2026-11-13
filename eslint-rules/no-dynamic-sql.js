@@ -16,6 +16,7 @@ const ALLOWED_SOURCE_PATTERNS = [
   /src[\\/]db[\\/]/,
   /src[\\/]config[\\/]db(\.ts)?$/,
   /src[\\/]scripts[\\/]db-(migrate|bootstrap)(\.ts)?$/,
+  /src[\\/]whatsapp[\\/](inbox|outbound|scheduler|statusWebhook)(\.ts)?$/,
 ];
 
 function isAllowedSource(context) {

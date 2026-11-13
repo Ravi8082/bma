@@ -106,24 +106,27 @@ CREATE INDEX ix_message_status_shop_message ON app.message_status_updates (shop_
 -- Returns only id and shop_id. No business data. Pinned search_path.
 CREATE OR REPLACE FUNCTION app.claim_next_inbox_message(p_shop_id uuid)
 RETURNS TABLE (message_id uuid, shop_id uuid)
-LANGUAGE sql
-STABLE
+LANGUAGE plpgsql
+VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, app
 AS $$
-  SELECT im.id, im.shop_id
-  FROM app.inbox_messages im
-  WHERE im.shop_id = p_shop_id
-    AND im.status = 'RECEIVED'
-    AND NOT EXISTS (
-      SELECT 1 FROM app.inbox_messages earlier
-      WHERE earlier.shop_id = im.shop_id
-        AND earlier.status IN ('RECEIVED', 'PROCESSING')
-        AND earlier.arrival_seq < im.arrival_seq
-    )
-  ORDER BY im.arrival_seq
-  LIMIT 1
-  FOR UPDATE SKIP LOCKED;
+BEGIN
+  RETURN QUERY
+    SELECT im.id, im.shop_id
+    FROM app.inbox_messages im
+    WHERE im.shop_id = p_shop_id
+      AND im.status = 'RECEIVED'
+      AND NOT EXISTS (
+        SELECT 1 FROM app.inbox_messages earlier
+        WHERE earlier.shop_id = im.shop_id
+          AND earlier.status IN ('RECEIVED', 'PROCESSING')
+          AND earlier.arrival_seq < im.arrival_seq
+      )
+    ORDER BY im.arrival_seq
+    LIMIT 1
+    FOR UPDATE SKIP LOCKED;
+END;
 $$;
 
 COMMENT ON FUNCTION app.claim_next_inbox_message(uuid) IS
@@ -136,24 +139,27 @@ GRANT EXECUTE ON FUNCTION app.claim_next_inbox_message(uuid) TO bma_app;
 -- Returns only id and shop_id. No business data. Audited via caller.
 CREATE OR REPLACE FUNCTION app.claim_next_inbox_message_global()
 RETURNS TABLE (message_id uuid, shop_id uuid)
-LANGUAGE sql
-STABLE
+LANGUAGE plpgsql
+VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, app
 AS $$
-  SELECT im.id, im.shop_id
-  FROM app.inbox_messages im
-  WHERE im.status = 'RECEIVED'
-    AND (im.lease_until IS NULL OR im.lease_until < now())
-    AND NOT EXISTS (
-      SELECT 1 FROM app.inbox_messages earlier
-      WHERE earlier.shop_id = im.shop_id
-        AND earlier.status IN ('RECEIVED', 'PROCESSING')
-        AND earlier.arrival_seq < im.arrival_seq
-    )
-  ORDER BY im.received_at
-  LIMIT 1
-  FOR UPDATE SKIP LOCKED;
+BEGIN
+  RETURN QUERY
+    SELECT im.id, im.shop_id
+    FROM app.inbox_messages im
+    WHERE im.status = 'RECEIVED'
+      AND (im.lease_until IS NULL OR im.lease_until < now())
+      AND NOT EXISTS (
+        SELECT 1 FROM app.inbox_messages earlier
+        WHERE earlier.shop_id = im.shop_id
+          AND earlier.status IN ('RECEIVED', 'PROCESSING')
+          AND earlier.arrival_seq < im.arrival_seq
+      )
+    ORDER BY im.received_at
+    LIMIT 1
+    FOR UPDATE SKIP LOCKED;
+END;
 $$;
 
 COMMENT ON FUNCTION app.claim_next_inbox_message_global() IS
@@ -162,14 +168,11 @@ COMMENT ON FUNCTION app.claim_next_inbox_message_global() IS
 REVOKE ALL ON FUNCTION app.claim_next_inbox_message_global() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.claim_next_inbox_message_global() TO bma_app;
 
--- RLS for shop-owned tables.
-ALTER TABLE app.inbox_messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE app.inbox_messages FORCE ROW LEVEL SECURITY;
-CREATE POLICY inbox_messages_tenant_isolation ON app.inbox_messages
-  FOR ALL TO bma_app, bma_reporting
-  USING (shop_id = app.current_shop_id())
-  WITH CHECK (shop_id = app.current_shop_id());
+-- inbox_messages: platform-level processing queue, no RLS (like security_events and login_index).
+-- It is NOT shop-owned: the sweeper claims across all shops. Tenant access to message data
+-- goes through whatsapp_messages (with RLS).
 
+-- RLS for shop-owned tables.
 ALTER TABLE app.outbox_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.outbox_events FORCE ROW LEVEL SECURITY;
 CREATE POLICY outbox_events_tenant_isolation ON app.outbox_events
