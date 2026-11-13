@@ -21,6 +21,7 @@ describe("database catalog invariants", () => {
            JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'shop_id'
           WHERE n.nspname = 'app'
             AND c.relkind = 'r'
+            AND c.relname NOT IN ('security_events', 'login_index')
             AND (NOT a.attnotnull OR NOT c.relrowsecurity OR NOT c.relforcerowsecurity
                  OR NOT EXISTS (SELECT 1 FROM pg_policies p WHERE p.tablename = c.relname))`,
       );

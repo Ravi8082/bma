@@ -1,0 +1,1 @@
+{"preset_key": "LAUNDRY", "name": "laundry", "visible_modules": ["ledger", "customers", "reminders"], "vocabulary_hints": {}, "default_report": "daily", "template_set": "default", "units": ["piece", "kg", "litre"]}
