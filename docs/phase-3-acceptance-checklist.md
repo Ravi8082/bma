@@ -51,8 +51,12 @@ and `docs/13-rls-and-roles.md` (§5.3).
 | B6 | The body hash (SHA-256 of raw body) is stored and used for replay detection | Two identical bodies with different timestamps → second is rejected as replay |
 | B7 | **Return 5xx if raw-message persistence fails** | Simulate a DB error during insert → endpoint returns 500; Meta retries; no partial state; no queue job enqueued |
 | B8 | **Raw payload retention limit** (30 days) | Retention job deletes `raw_payload` after 30 days; message metadata (hash, status, timestamps) retained; bounded `DELETE` with `statement_timeout` |
-| B9 | **RLS on the messages table** | `whatsapp_messages` has `FORCE ROW LEVEL SECURITY` and a tenant policy; a query without tenant context returns zero rows |
-| B10 | **Log redaction** | No raw phone, access token, or message body in pino output; redaction list includes `authorization`, `cookie`, `set-cookie`, `access_token`, `body`, `raw_payload` |
+| B9 | **Minimal audit references retained for disputes** | After raw payload deletion, minimal references (message ID, hash, status, timestamps, shop_id) retained for 1 year for dispute resolution; periods listed in `docs/14-retention-and-anonymisation.md` |
+| B10 | **RLS on the messages table** | `whatsapp_messages` has `FORCE ROW LEVEL SECURITY` and a tenant policy; a query without tenant context returns zero rows |
+| B11 | **Log redaction** | No raw phone, access token, or message body in pino output; redaction list includes `authorization`, `cookie`, `set-cookie`, `access_token`, `body`, `raw_payload` |
+| B12 | **Replay protection relies on idempotency** | Meta signatures carry no timestamp; replay protection is via `wa_message_id` uniqueness per shop; a replayed identical message returns 200 with no duplicate processing (idempotent) |
+| B13 | **Body size limit before signature verification** | Body >1 MB → 413 before HMAC verification; no DB write, no signature check |
+| B14 | **Dual app-secret acceptance during rotation** | During a secret rotation window (configurable, default 24h), both the old and new app secret are accepted for signature verification; after the window, only the new secret is accepted |
 
 ---
 
@@ -66,6 +70,9 @@ and `docs/13-rls-and-roles.md` (§5.3).
 | C4 | A payload whose `wa_message_id` belongs to shop A cannot be routed into shop B | Cross-shop message ID → rejected, `security_events` row |
 | C5 | Routing runs inside `withTenant()` for the resolved shop | The message processor receives a tenant-scoped DB handle |
 | C6 | **Per-seller ordered processing** | Queue key is `(shop_id, seller_phone_bidx)`; concurrency = 1; "Confirm" cannot run before its "Draft" is processed; a test with 10 concurrent messages verifies FIFO order |
+| C7 | **Ordering by WhatsApp timestamp** | Messages are ordered by `received_at` (WhatsApp timestamp); a "Confirm" arriving before its "Draft" is held for up to 5 seconds (reorder window) then processed; if the draft never arrives, the confirm is dead-lettered with a polite reply |
+| C8 | **Unsupported message types handled safely** | Sticker, location, reaction, contact, group message → polite reply ("I can only process text, voice and photos"), no crash, no DB write beyond the message row, audit row written |
+| C9 | **Group messages ignored** | A message from a group (not a 1:1 chat) → ignored with a log entry; no processing, no reply |
 
 ---
 
@@ -95,6 +102,9 @@ and `docs/13-rls-and-roles.md` (§5.3).
 | E6 | **Never blind-retry from UNKNOWN** | A message stuck in `UNKNOWN` for >5 min → alert, not retry; reconciliation webhook resolves it to `SENT` or `FAILED` |
 | E7 | **Outbound pre-checks (hooks)** | Before sending: opt-out check, 24-hour window or template, frequency caps, quiet hours, cost caps, balance re-check; any failure → `FAILED` with reason, no send attempted |
 | E8 | **Meta token only from the secret manager** | `WHATSAPP_ACCESS_TOKEN` is loaded from the secret manager at boot; production refuses to start without it; no token in logs, error bodies, or DB |
+| E9 | **Seller notification on outbound failure** | When an outbound customer message fails (after retries), the seller receives a WhatsApp notification: "Could not send message to [customer]. Reason: [reason]. Reply 'retry' to try again." |
+| E10 | **Per-shop backpressure** | A shop with >100 queued outbound messages → new outbound messages from that shop are delayed (not dropped); the shop is not starved, but its priority is lowered |
+| E11 | **Global backpressure** | Total queued outbound messages across all shops >10,000 → all new outbound messages are delayed; an alert is raised; the system degrades gracefully without dropping messages |
 
 ---
 
@@ -129,14 +139,38 @@ and `docs/13-rls-and-roles.md` (§5.3).
 
 ---
 
-## I. Cross-cutting
+## J. Per-seller ordering design (PostgreSQL inbox queue)
 
+**Decision: Use PostgreSQL as the inbox queue with per-seller advisory locks.**
+
+### Why not BullMQ (open source)
+- BullMQ open-source has **no per-key concurrency**. Groups are a BullMQ Pro feature ($95/mo).
+- Without groups, all jobs from all sellers share one queue with global concurrency, so a noisy seller can starve others.
+- glide-mq offers open-source per-key ordering but is a different library with less ecosystem maturity.
+
+### Why PostgreSQL as the inbox queue
+1. **Per-seller ordering**: `pg_advisory_lock(hashtext(shop_id || ':' || seller_phone))` ensures only one message per seller is processed at a time, across any number of workers.
+2. **Retries**: The `whatsapp_messages` table already tracks `status`, `attempts`, `last_error`, `processed_at`. A sweeper claims unprocessed rows with `FOR UPDATE SKIP LOCKED`.
+3. **Crash recovery**: Messages are persisted before queueing (Phase 1 invariant). A worker crash leaves the row in `RECEIVED` state; the sweeper reclaims it after a timeout.
+4. **No Redis dependency for ordering**: Redis is still used for rate limiting, but message ordering and delivery no longer depend on it.
+5. **Transactional**: The message row and the business write are in the same database; no distributed transaction needed.
+
+### Design
+- **Table:** `whatsapp_messages` (already exists from Phase 1) with columns: `status`, `attempts`, `last_error`, `received_at`, `processed_at`, `body`, `raw_payload`.
+- **Claiming:** `SELECT ... FROM app.whatsapp_messages WHERE status = 'RECEIVED' ORDER BY received_at FOR UPDATE SKIP LOCKED LIMIT 1` — but this doesn't guarantee per-seller ordering.
+- **Per-seller lock:** Before processing a claimed message, the worker acquires `pg_advisory_lock(hashtext(shop_id::text || ':' || from_phone_bidx::text))`. This serializes processing per seller across all workers.
+- **Reorder window:** Messages are held for up to 5 seconds if a "Confirm" arrives before its "Draft" (matched by conversation context). After 5 seconds, the confirm is dead-lettered with a polite reply.
+- **Sweeper:** A background job runs every 30 seconds, claims `RECEIVED` rows older than 10 seconds, and processes them. This handles Redis outages and worker crashes.
+- **Dead letters:** After 3 failed attempts, the message is marked `FAILED` and an alert is raised. The queue continues processing other messages.
+
+### Acceptance tests
 | # | Requirement | Acceptance test |
 |---|---|---|
-| I1 | Webhook endpoint is registered in the route registry with authz/IDOR entries | Route enumeration test passes |
-| I2 | No raw SQL outside `src/db/**` | `check:tenant` and ESLint rule pass |
-| I3 | All Phase 1 and Phase 2 invariants preserved | RLS, append-only ledger, `withTenant`, no dynamic SQL all verified |
-| I4 | Catalog invariant covers all shop-owned tables including new ones | `catalog.test.ts` passes |
+| J1 | Per-seller ordering via advisory lock | 10 concurrent messages from the same seller → processed one at a time in `received_at` order |
+| J2 | Crash recovery | Kill the worker mid-processing → the sweeper reclaims the message within 30 seconds; it is processed exactly once |
+| J3 | Redis outage does not lose messages | With Redis stopped, messages are persisted and processed by the sweeper when Redis returns |
+| J4 | Reorder window | A "Confirm" arriving 2 seconds before its "Draft" is held; when the draft arrives, both are processed in order |
+| J5 | Dead-letter does not block the queue | A message that fails 3 times is dead-lettered; the next message in the queue is processed immediately |
 
 ---
 

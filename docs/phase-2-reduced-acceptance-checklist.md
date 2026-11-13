@@ -183,7 +183,7 @@ CI gates: all pass, typecheck clean, lint clean, **no skipped security test**, c
 
 6. **Export format** — JSON for Tier 1. PDF deferred to dashboard phase. Simpler: no PDF rendering dependency in Phase 2.
 
-7. **Delete grace period** — 7 days (matches `docs/14-retention-and-anonymisation.md`). Safer: gives time to cancel accidental deletion.
+8. **KMS** — AWS KMS in production (or GCP Cloud KMS / Azure Key Vault per region). Local dev uses a key derived from `FIELD_ENCRYPTION_KEY_REF` (default string). No key lives in `.env` or the database in production. See `docs/15-kms-and-keys.md`.
 
 ## Additional tests (from approval additions)
 
@@ -218,7 +218,7 @@ CI gates: all pass, typecheck clean, lint clean, **no skipped security test**, c
 |---|---|---|
 | D7 | Export delivered only to the registered number after confirmation | Export file is sent via WhatsApp to the registered number; a request from an unregistered number is ignored |
 | D8 | Export daily limit and short-lived link | Max 1 export per 24 hours per shop; download link expires in 24 hours; single-use |
-| D9 | Deletion: 24–72 hour cooling-off with cancel option | Delete request starts a 48-hour cooling-off; "cancel" within the window aborts; after cooling-off, anonymisation runs |
+| D9 | Deletion: **7-day** cooling-off with cancel option | Delete request starts a 7-day cooling-off; "cancel" within the window aborts; after cooling-off, anonymisation runs |
 | D10 | Financial records anonymised, not hard-deleted | After deletion, ledger amounts and tombstone remain; PII columns are cleared; retention periods listed in `docs/14-retention-and-anonymisation.md` |
 
 ### E. Helper and multi-shop
