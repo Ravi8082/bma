@@ -2,6 +2,7 @@ import { env } from "./config/env";
 import { InlineQueue } from "./jobs/queue";
 import { SimulatorStore } from "./simulator/store";
 import { createMessagingProvider } from "./integrations/messaging/factory";
+import { TenantScopedProcessorRegistry } from "./jobs/processors/registry";
 
 /**
  * Process-wide singletons. Explicit and boring on purpose: with one API
@@ -11,3 +12,4 @@ import { createMessagingProvider } from "./integrations/messaging/factory";
 export const simulatorStore = new SimulatorStore();
 export const messaging = createMessagingProvider(env.MESSAGING_PROVIDER, { simulatorStore });
 export const queue = new InlineQueue();
+export const processors = new TenantScopedProcessorRegistry();

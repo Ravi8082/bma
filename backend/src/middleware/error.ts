@@ -1,8 +1,7 @@
 import type { ErrorRequestHandler } from "express";
-import mongoose from "mongoose";
 import { ZodError } from "zod";
 import { AppError } from "../errors/AppError";
-import { TenantViolationError } from "../db/plugins/tenantGuard";
+import { TenantContextError } from "../db/tenant";
 import { logger } from "../config/logger";
 import { getRequestId } from "./requestId";
 
@@ -62,40 +61,19 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
     return;
   }
 
-  if (error instanceof mongoose.Error.VersionError) {
-    res.status(409).json(
-      body("STALE_WRITE", "This record was changed by someone else. Reload and try again.", requestId, {
-        messageKey: "error.staleWrite",
-      }),
-    );
-    return;
-  }
-
-  if (error instanceof mongoose.Error.ValidationError) {
-    res.status(400).json(
-      body("VALIDATION_ERROR", "Database validation failed", requestId, {
-        messageKey: "error.validation",
-        details: Object.values(error.errors).map((issue) => ({
-          path: issue.path,
-          message: issue.message,
-        })),
-      }),
-    );
-    return;
-  }
-
-  if (error instanceof TenantViolationError) {
-    // Reaching this is a programming error: it must never happen in production.
-    logger.error({ err: error, requestId }, "tenant guard tripped");
+  if (error instanceof TenantContextError) {
+    // Reaching this means a tenant-scoped transaction could not be established. It is a
+    // programming or misconfiguration error; never expose the internal reason to the client.
+    logger.error({ err: error }, "tenant context error");
     res.status(500).json(
-      body("TENANT_SCOPE_REQUIRED", "Internal consistency error", requestId, {
+      body("TENANT_SCOPE_REQUIRED", "Tenant context could not be established", requestId, {
         messageKey: "error.internal",
       }),
     );
     return;
   }
 
-  logger.error({ err: error, requestId }, "unhandled error");
+  logger.error({ err: error }, "unhandled error");
   res.status(500).json(
     body("INTERNAL_ERROR", "Something went wrong on our side", requestId, {
       messageKey: "error.internal",

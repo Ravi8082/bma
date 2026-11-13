@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { Types } from "mongoose";
 
 export type AdminRole = "ADMIN" | "SUPPORT";
 export type AdminOperation = "READ" | "WRITE";
@@ -16,7 +15,7 @@ export interface AdminAccessTicket {
   ticketId: string;
   actorId: string;
   role: AdminRole;
-  shopId: Types.ObjectId;
+  shopId: string;
   reason: string;
   issuedAt: Date;
   expiresAt: Date;
@@ -25,7 +24,7 @@ export interface AdminAccessTicket {
 export interface IssueTicketInput {
   actorId: string;
   role: AdminRole;
-  shopId: Types.ObjectId;
+  shopId: string;
   reason: string;
 }
 
@@ -62,6 +61,13 @@ export type AdminDenialCode =
   | "ADMIN_WRITE_FORBIDDEN"
   | "ADMIN_OPERATION_REQUIRED";
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isShopId(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
 export class AdminAccessDeniedError extends Error {
   readonly code: AdminDenialCode;
 
@@ -77,7 +83,7 @@ const MIN_REASON_LENGTH = 10;
 
 export interface AdminAccessRequest {
   ticket: AdminAccessTicket;
-  shopId: Types.ObjectId;
+  shopId?: string;
   operation: AdminOperation;
 }
 
@@ -97,6 +103,9 @@ export class AdminAccessService {
     }
     if (!input.actorId.trim()) {
       throw new AdminAccessDeniedError("ADMIN_REASON_REQUIRED", "actorId is required");
+    }
+    if (!isShopId(input.shopId)) {
+      throw new AdminAccessDeniedError("ADMIN_SHOP_REQUIRED", "shopId must be a UUID");
     }
 
     const issuedAt = this.now();
@@ -123,7 +132,7 @@ export class AdminAccessService {
       ticketId: request.ticket.ticketId,
       actorId: request.ticket.actorId,
       role: request.ticket.role,
-      shopId: String(request.shopId ?? request.ticket.shopId),
+      shopId: request.ticket.shopId,
       reason: request.ticket.reason,
       operation: request.operation,
       at: this.now(),
@@ -165,13 +174,13 @@ export class AdminAccessService {
     if (operation !== "READ" && operation !== "WRITE") {
       throw new AdminAccessDeniedError("ADMIN_OPERATION_REQUIRED", "operation must be READ or WRITE");
     }
-    if (!shopId || !(shopId instanceof Types.ObjectId)) {
+    if (!shopId || !isShopId(shopId)) {
       throw new AdminAccessDeniedError(
         "ADMIN_SHOP_REQUIRED",
         "an explicit target shopId is required; admin access is never unscoped",
       );
     }
-    if (!ticket.shopId.equals(shopId)) {
+    if (ticket.shopId !== shopId) {
       throw new AdminAccessDeniedError(
         "ADMIN_SHOP_MISMATCH",
         "this ticket was issued for a different shop",
@@ -188,7 +197,7 @@ export class AdminAccessService {
     }
 
     return {
-      shopId: String(ticket.shopId),
+      shopId,
       actorId: ticket.actorId,
       role: ticket.role,
       source: "ADMIN_TICKET",

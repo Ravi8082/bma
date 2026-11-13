@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { createApp } from "./app";
-import { connectMongo, disconnectMongo } from "./config/db";
+import { connectDb, disconnectDb } from "./config/db";
 import { env } from "./config/env";
 import { logger } from "./config/logger";
 import { queue } from "./container";
@@ -8,9 +8,9 @@ import { queue } from "./container";
 const SHUTDOWN_TIMEOUT_MS = 25_000;
 
 async function main(): Promise<void> {
-  const connection = await connectMongo();
+  const connection = await connectDb();
   logger.info(
-    { replicaSet: connection.isReplicaSet, database: connection.database },
+    { database: connection.database, role: connection.role, version: connection.version },
     "database ready",
   );
 
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
 
     try {
       await queue.close();
-      await disconnectMongo();
+      await disconnectDb();
       logger.info("shutdown complete");
       process.exit(0);
     } catch (error) {

@@ -3,9 +3,7 @@ import { z } from "zod";
 
 const emptyToUndefined = (value: unknown): unknown => (value === "" ? undefined : value);
 
-const booleanString = z
-  .enum(["true", "false"])
-  .transform((value) => value === "true");
+const booleanString = z.enum(["true", "false"]).transform((value) => value === "true");
 
 const envSchema = z
   .object({
@@ -14,18 +12,38 @@ const envSchema = z
     APP_BASE_URL: z.string().url().default("http://localhost:4000"),
     DASHBOARD_ORIGIN: z.string().default("http://localhost:5173"),
 
-    MONGODB_URI: z
+    DATABASE_URL: z
       .string()
       .min(1)
-      .default("mongodb://localhost:27017/business_memory?replicaSet=rs0"),
-    MONGODB_DB_NAME: z.string().default("business_memory"),
+      .default("postgres://bma_app:dev-app-password@localhost:5432/business_memory"),
+    MIGRATION_DATABASE_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    DB_POOL_MAX: z.coerce.number().int().min(1).max(200).default(20),
+    DB_SSL_MODE: z.enum(["disable", "require", "verify-full"]).default("disable"),
+
     REDIS_URL: z.string().default("redis://localhost:6379"),
     QUEUE_DRIVER: z.enum(["inline", "bullmq"]).default("inline"),
 
     JWT_SECRET_CURRENT: z.string().min(1).default("dev-only-change-me-32-bytes-minimum-secret"),
-    ACCESS_TOKEN_TTL: z.string().default("15m"),
+    ACCESS_TOKEN_TTL: z.string().default("12m"),
     REFRESH_TOKEN_TTL: z.string().default("30d"),
     COOKIE_SECURE: z.preprocess(emptyToUndefined, booleanString.default("false")),
+    CSRF_SECRET: z.preprocess(
+      emptyToUndefined,
+      z.string().default("dev-only-csrf-secret-32-bytes-minimum"),
+    ),
+
+    OTP_PEPPER: z.preprocess(
+      emptyToUndefined,
+      z.string().default("dev-only-otp-pepper-32-bytes-minimum"),
+    ),
+    PHONE_BLIND_INDEX_KEY: z.preprocess(
+      emptyToUndefined,
+      z.string().default("dev-only-blind-index-key-32-bytes"),
+    ),
+    FIELD_ENCRYPTION_KEY_REF: z.preprocess(
+      emptyToUndefined,
+      z.string().default("dev-local-kms-key"),
+    ),
 
     MESSAGING_PROVIDER: z.enum(["simulator", "meta"]).default("simulator"),
     WHATSAPP_VERIFY_TOKEN: z.string().default("dev-verify-token"),
@@ -78,6 +96,41 @@ const envSchema = z
         code: z.ZodIssueCode.custom,
         path: ["JWT_SECRET_CURRENT"],
         message: "JWT_SECRET_CURRENT must be at least 32 characters in production",
+      });
+    }
+    if (value.DB_SSL_MODE !== "verify-full") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["DB_SSL_MODE"],
+        message: "production requires DB_SSL_MODE=verify-full (TLS with a verified certificate)",
+      });
+    }
+    if (/sslmode=(disable|prefer|allow)\b/.test(value.DATABASE_URL)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["DATABASE_URL"],
+        message: "production DATABASE_URL must use sslmode=verify-full",
+      });
+    }
+    if (value.OTP_PEPPER.length < 32) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["OTP_PEPPER"],
+        message: "OTP_PEPPER must be at least 32 characters and come from the secret manager",
+      });
+    }
+    if (value.PHONE_BLIND_INDEX_KEY.length < 32) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["PHONE_BLIND_INDEX_KEY"],
+        message: "PHONE_BLIND_INDEX_KEY must be at least 32 characters and come from the secret manager",
+      });
+    }
+    if (value.CSRF_SECRET.length < 32) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["CSRF_SECRET"],
+        message: "CSRF_SECRET must be at least 32 characters",
       });
     }
     if (!value.WHATSAPP_APP_SECRET || !value.WHATSAPP_ACCESS_TOKEN || !value.WHATSAPP_PHONE_NUMBER_ID) {

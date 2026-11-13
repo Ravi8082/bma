@@ -38,7 +38,7 @@ describe("health", () => {
     const app = createApp({
       health: {
         pingDatabase: async () => {
-          throw new Error("mongo down");
+          throw new Error("database down");
         },
         pingQueue: async () => true,
       },

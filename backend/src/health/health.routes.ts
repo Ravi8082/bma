@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { env } from "../config/env";
-import { pingMongo } from "../config/db";
+import { pingDb } from "../config/db";
 import { queue } from "../container";
 
 export interface HealthDependencies {
@@ -10,7 +10,7 @@ export interface HealthDependencies {
 
 export function createHealthRouter(deps: HealthDependencies = {}): Router {
   const router = Router();
-  const pingDatabase = deps.pingDatabase ?? pingMongo;
+  const pingDatabase = deps.pingDatabase ?? pingDb;
   const pingQueue = deps.pingQueue ?? ((): Promise<boolean> => queue.ping());
 
   router.get("/", (_req, res) => {

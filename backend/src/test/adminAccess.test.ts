@@ -1,4 +1,3 @@
-import { Types } from "mongoose";
 import { describe, expect, it } from "vitest";
 import {
   ADMIN_TICKET_TTL_MS,
@@ -22,8 +21,8 @@ function createHarness() {
   return { events, service, advance };
 }
 
-const shopA = new Types.ObjectId();
-const shopB = new Types.ObjectId();
+const shopA = "11111111-1111-4111-8111-111111111111";
+const shopB = "22222222-2222-4222-8222-222222222222";
 
 describe("admin access ticket issuance", () => {
   it("requires a written reason of at least 10 characters", () => {
@@ -39,11 +38,11 @@ describe("admin access ticket issuance", () => {
       actorId: "admin-1",
       role: "ADMIN",
       shopId: shopA,
-      reason: "investigating support ticket #412",
+      reason: "  investigating support ticket #412  ",
     });
 
     expect(ticket.ticketId).toMatch(/^adt_/);
-    expect(ticket.shopId.equals(shopA)).toBe(true);
+    expect(ticket.shopId).toBe(shopA);
     expect(ticket.expiresAt.getTime() - ticket.issuedAt.getTime()).toBe(ADMIN_TICKET_TTL_MS);
     expect(ticket.reason).toBe("investigating support ticket #412");
   });
@@ -104,10 +103,7 @@ describe("admin access enforcement", () => {
     });
 
     await expect(
-      service.execute(
-        { ticket, shopId: undefined as unknown as Types.ObjectId, operation: "READ" },
-        async () => "data",
-      ),
+      service.execute({ ticket, operation: "READ" }, async () => "data"),
     ).rejects.toMatchObject({ code: "ADMIN_SHOP_REQUIRED" });
   });
 
@@ -126,10 +122,31 @@ describe("admin access enforcement", () => {
     );
 
     expect(context).toMatchObject({
-      shopId: String(shopA),
+      shopId: shopA,
       source: "ADMIN_TICKET",
       readOnly: false,
       ticketId: ticket.ticketId,
+    });
+  });
+
+  it("scopes a read-only admin context to the ticket's shop", async () => {
+    const { service } = createHarness();
+    const ticket = service.issue({
+      actorId: "admin-1",
+      role: "ADMIN",
+      shopId: shopA,
+      reason: "reviewing a refund before approving it",
+    });
+
+    const context = await service.execute(
+      { ticket, shopId: shopA, operation: "READ" },
+      async (ctx) => ctx,
+    );
+
+    expect(context).toMatchObject({
+      shopId: shopA,
+      source: "ADMIN_TICKET",
+      readOnly: true,
     });
   });
 });
@@ -155,7 +172,7 @@ describe("admin access audit trail", () => {
         ticketId: ticket.ticketId,
         actorId: "admin-1",
         role: "ADMIN",
-        shopId: String(shopA),
+        shopId: shopA,
         operation: "READ",
         reason: "investigating support ticket #412",
       });

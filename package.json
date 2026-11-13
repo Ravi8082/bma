@@ -15,11 +15,14 @@
   "scripts": {
     "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "npm run dev --workspace @bma/backend",
-    "dev:memory": "npm run dev:memory --workspace @bma/backend",
+    "db:bootstrap": "npm run db:bootstrap --workspace @bma/backend",
+    "db:migrate": "npm run db:migrate --workspace @bma/backend",
+    "check:tenant": "npm run check:tenant --workspace @bma/backend",
     "dev:web": "npm run dev --workspace @bma/frontend",
     "build": "npm run build --workspace @bma/shared && npm run build --workspace @bma/backend && npm run build --workspace @bma/frontend",
     "typecheck": "npm run typecheck --workspace @bma/shared && npm run typecheck --workspace @bma/backend && npm run typecheck --workspace @bma/frontend",
     "test": "npm run test --workspace @bma/shared && npm run test --workspace @bma/backend",
+    "test:catalog": "npm run test:catalog --workspace @bma/backend",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
