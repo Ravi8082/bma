@@ -22,6 +22,8 @@ export interface ParsedEntry {
 export interface EntryParser {
   readonly name: string;
   parse(text: string, options?: { maxAmountPaise?: number }): ParsedEntry | null;
+  /** Optional async path used by LLM-backed parsers. */
+  parseAsync?(text: string, options?: { maxAmountPaise?: number }): Promise<ParsedEntry | null>;
 }
 
 const MONEY_TOKEN = /^(?:₹|rs\.?|inr)?\s*(\d{1,9})(?:\.(\d{1,2}))?\/?-?$/i;

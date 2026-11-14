@@ -13,6 +13,7 @@ import { withTenant, type TenantDb } from "../db/tenant";
 import { sql } from "../db/sql";
 import { raiseInboxDeadLetter } from "./alerts";
 import { cancelDraft, confirmDraft, formatPaise } from "./confirmation";
+import { findOrCreateCustomer as findOrCreateCustomerModule } from "../modules/customers/customers";
 import { claimNextForShop, getInboxMessage, markDone, markFailed, type InboxMessage } from "./inbox";
 import { enqueueOutbound, enqueueOutboundTx } from "./outbound";
 import type { EntryParser } from "./parser";
@@ -61,34 +62,17 @@ function normaliseName(name: string): string {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-async function findOrCreateCustomer(
-  db: TenantDb,
-  shopId: string,
-  name: string,
-): Promise<string> {
-  const normalized = normaliseName(name);
-  const existing = await db.query<{ id: string }>(
-    sql`SELECT id FROM app.customers
-         WHERE shop_id = ${shopId} AND name_normalized = ${normalized}
-         ORDER BY created_at
-         LIMIT 1`,
-  );
-  const found = existing[0];
-  if (found) return found.id;
-
-  const id = randomUUID();
-  await db.execute(
-    sql`INSERT INTO app.customers (id, shop_id, name, name_normalized, balance_paise)
-        VALUES (${id}, ${shopId}, ${name.trim()}, ${normalized}, 0)`,
-  );
-  return id;
-}
+// Customer matching is delegated to modules/customers/customers.ts so ambiguity is
+// handled consistently (no auto-pick). findOrCreateCustomerModule is imported above.
 
 async function handleText(message: InboxMessage, deps: InboundDeps): Promise<void> {
   const text = textBody(message.body);
   if (!text) throw new Error("EMPTY_TEXT");
 
-  const parsed = deps.parser.parse(text, { maxAmountPaise: env.MAX_ENTRY_PAISE });
+  const parsed =
+    typeof deps.parser.parseAsync === "function"
+      ? await deps.parser.parseAsync!(text, { maxAmountPaise: env.MAX_ENTRY_PAISE })
+      : deps.parser.parse(text, { maxAmountPaise: env.MAX_ENTRY_PAISE });
   if (!parsed) throw new Error(`EXTRACTION_FAILED: ${text.slice(0, 80)}`);
 
   const sellerPhone = senderPhone(message.body);
@@ -104,7 +88,9 @@ async function handleText(message: InboxMessage, deps: InboundDeps): Promise<voi
   await withTenant(
     { shopId: message.shopId, actorType: "WORKER", actorId: "inbound" },
     async (db) => {
-      const customerId = await findOrCreateCustomer(db, message.shopId, parsed.customerName);
+      const customerMatch = await findOrCreateCustomerModule(db, message.shopId, parsed.customerName, deps.blindIndexKey);
+      const customerId = customerMatch.customerId;
+      const customerAmbiguous = customerMatch.ambiguous;
 
       const inserted = await db.query<{ id: string }>(
         sql`INSERT INTO app.entry_drafts
@@ -124,6 +110,24 @@ async function handleText(message: InboxMessage, deps: InboundDeps): Promise<voi
       // The draft and the confirmation are written in one transaction. If the draft already
       // exists, a previous attempt committed both, so do not enqueue a second confirmation.
       if (!draft) return;
+
+      if (customerAmbiguous) {
+        await enqueueOutboundTx(db, {
+          shopId: message.shopId,
+          recipientPhoneBidx: sellerBidx,
+          recipientPhoneEnc: encryptField(sellerPhone, deps.keyRef, 1, {
+            shopId: message.shopId,
+            table: "outbox_events",
+            column: "recipient_phone_enc",
+          }),
+          keyVersion: 1,
+          messageType: "TEXT",
+          payload: {
+            to: sellerPhone,
+            text: `Multiple customers named ${parsed.customerName}. Reply with a distinguishing label or phone number.`,
+          },
+        });
+      }
 
       await enqueueOutboundTx(db, {
         shopId: message.shopId,

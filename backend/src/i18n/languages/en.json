@@ -1,0 +1,12 @@
+{
+  "entry.new": "New entry: {amount} {type} for {customer}.",
+  "entry.confirm": "Confirm or cancel.",
+  "entry.confirmed": "Entry confirmed.",
+  "entry.cancelled": "Entry cancelled.",
+  "entry.not_found": "I could not find that entry, please send it again.",
+  "entry.format_help": "Try: Ramesh 300 udhaar",
+  "unsupported": "I can only process text messages right now. Please resend this as text.",
+  "batch.summary": "Pending entries: {count}, total {total}.",
+  "batch.confirm_all": "Confirm all",
+  "batch.review": "Review/Edit"
+}

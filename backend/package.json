@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:catalog": "vitest run src/test/db/catalog.test.ts"
+    "test:catalog": "vitest run src/test/db/catalog.test.ts",
+    "eval:extraction": "tsx src/scripts/eval-extraction.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

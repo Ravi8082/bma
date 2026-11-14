@@ -1,0 +1,1266 @@
+[
+  {
+    "id": "hi-0",
+    "lang": "hi",
+    "text": "hello",
+    "expected": null,
+    "holdout": false
+  },
+  {
+    "id": "hi-1",
+    "lang": "hi",
+    "text": "Suresh 150 jama",
+    "expected": {
+      "customerName": "Suresh",
+      "amountPaise": 15000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-2",
+    "lang": "hi",
+    "text": "Mahesh ko 200 diye",
+    "expected": {
+      "customerName": "Mahesh",
+      "amountPaise": 20000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-3",
+    "lang": "hi",
+    "text": "Rajesh 300 udhaar",
+    "expected": {
+      "customerName": "Rajesh",
+      "amountPaise": 30000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-4",
+    "lang": "hi",
+    "text": "Dinesh 450 jama",
+    "expected": {
+      "customerName": "Dinesh",
+      "amountPaise": 45000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-5",
+    "lang": "hi",
+    "text": "Priya ko 500 diye",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 50000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-6",
+    "lang": "hi",
+    "text": "Sunita 750 udhaar",
+    "expected": {
+      "customerName": "Sunita",
+      "amountPaise": 75000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-7",
+    "lang": "hi",
+    "text": "Anita 1000 jama",
+    "expected": {
+      "customerName": "Anita",
+      "amountPaise": 100000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-8",
+    "lang": "hi",
+    "text": "Ramesh ko 1234 diye",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 123400,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-9",
+    "lang": "hi",
+    "text": "Suresh 2500 udhaar",
+    "expected": {
+      "customerName": "Suresh",
+      "amountPaise": 250000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-10",
+    "lang": "hi",
+    "text": "Mahesh 100 jama",
+    "expected": {
+      "customerName": "Mahesh",
+      "amountPaise": 10000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-11",
+    "lang": "hi",
+    "text": "Rajesh ko 150 diye",
+    "expected": {
+      "customerName": "Rajesh",
+      "amountPaise": 15000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-12",
+    "lang": "hi",
+    "text": "Dinesh 200 udhaar",
+    "expected": {
+      "customerName": "Dinesh",
+      "amountPaise": 20000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-13",
+    "lang": "hi",
+    "text": "Priya 300 jama",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 30000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-14",
+    "lang": "hi",
+    "text": "Sunita ko 450 diye",
+    "expected": {
+      "customerName": "Sunita",
+      "amountPaise": 45000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-15",
+    "lang": "hi",
+    "text": "Anita 500 udhaar",
+    "expected": {
+      "customerName": "Anita",
+      "amountPaise": 50000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-16",
+    "lang": "hi",
+    "text": "Ramesh 750 jama",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 75000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-17",
+    "lang": "hi",
+    "text": "hello",
+    "expected": null,
+    "holdout": false
+  },
+  {
+    "id": "hi-18",
+    "lang": "hi",
+    "text": "Mahesh 1234 udhaar",
+    "expected": {
+      "customerName": "Mahesh",
+      "amountPaise": 123400,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-19",
+    "lang": "hi",
+    "text": "Rajesh 2500 udhaar, 50 wapas aaye",
+    "expected": null,
+    "holdout": false
+  },
+  {
+    "id": "hi-20",
+    "lang": "hi",
+    "text": "Dinesh ko 100 diye",
+    "expected": {
+      "customerName": "Dinesh",
+      "amountPaise": 10000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-21",
+    "lang": "hi",
+    "text": "Priya 150 udhaar",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 15000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-22",
+    "lang": "hi",
+    "text": "Sunita 200 jama",
+    "expected": {
+      "customerName": "Sunita",
+      "amountPaise": 20000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-23",
+    "lang": "hi",
+    "text": "Anita ko 300 diye",
+    "expected": {
+      "customerName": "Anita",
+      "amountPaise": 30000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-24",
+    "lang": "hi",
+    "text": "Ramesh 450 udhaar",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 45000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-25",
+    "lang": "hi",
+    "text": "Suresh 500 jama",
+    "expected": {
+      "customerName": "Suresh",
+      "amountPaise": 50000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-26",
+    "lang": "hi",
+    "text": "Mahesh ko 750 diye",
+    "expected": {
+      "customerName": "Mahesh",
+      "amountPaise": 75000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-27",
+    "lang": "hi",
+    "text": "Rajesh 1000 udhaar",
+    "expected": {
+      "customerName": "Rajesh",
+      "amountPaise": 100000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-28",
+    "lang": "hi",
+    "text": "Dinesh 1234 jama",
+    "expected": {
+      "customerName": "Dinesh",
+      "amountPaise": 123400,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-29",
+    "lang": "hi",
+    "text": "Priya ko 2500 diye",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 250000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-30",
+    "lang": "hi",
+    "text": "Sunita 100 udhaar",
+    "expected": {
+      "customerName": "Sunita",
+      "amountPaise": 10000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-31",
+    "lang": "hi",
+    "text": "Anita 150 jama",
+    "expected": {
+      "customerName": "Anita",
+      "amountPaise": 15000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-32",
+    "lang": "hi",
+    "text": "Ramesh ko 200 diye",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 20000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-33",
+    "lang": "hi",
+    "text": "Suresh 300 udhaar",
+    "expected": {
+      "customerName": "Suresh",
+      "amountPaise": 30000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-34",
+    "lang": "hi",
+    "text": "hello",
+    "expected": null,
+    "holdout": false
+  },
+  {
+    "id": "hi-35",
+    "lang": "hi",
+    "text": "Rajesh ko 500 diye",
+    "expected": {
+      "customerName": "Rajesh",
+      "amountPaise": 50000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-36",
+    "lang": "hi",
+    "text": "Dinesh 750 udhaar",
+    "expected": {
+      "customerName": "Dinesh",
+      "amountPaise": 75000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-37",
+    "lang": "hi",
+    "text": "Priya 1000 jama",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 100000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hi-38",
+    "lang": "hi",
+    "text": "Sunita 1234 udhaar, 50 wapas aaye",
+    "expected": null,
+    "holdout": false
+  },
+  {
+    "id": "hi-39",
+    "lang": "hi",
+    "text": "Anita 2500 udhaar",
+    "expected": {
+      "customerName": "Anita",
+      "amountPaise": 250000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-40",
+    "lang": "en",
+    "text": "Ramesh 100 udhaar",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 10000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-41",
+    "lang": "en",
+    "text": "Suresh 150",
+    "expected": {
+      "customerName": "Suresh",
+      "amountPaise": 15000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-42",
+    "lang": "en",
+    "text": "Mahesh paid 200",
+    "expected": {
+      "customerName": "Mahesh",
+      "amountPaise": 20000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-43",
+    "lang": "en",
+    "text": "Credit 300 to Rajesh",
+    "expected": {
+      "customerName": "Rajesh",
+      "amountPaise": 30000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-44",
+    "lang": "en",
+    "text": "Dinesh 450 udhaar",
+    "expected": {
+      "customerName": "Dinesh",
+      "amountPaise": 45000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-45",
+    "lang": "en",
+    "text": "Priya 500",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 50000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-46",
+    "lang": "en",
+    "text": "Sunita paid 750",
+    "expected": {
+      "customerName": "Sunita",
+      "amountPaise": 75000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-47",
+    "lang": "en",
+    "text": "Credit 1000 to Anita",
+    "expected": {
+      "customerName": "Anita",
+      "amountPaise": 100000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-48",
+    "lang": "en",
+    "text": "Ramesh 1234 udhaar",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 123400,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-49",
+    "lang": "en",
+    "text": "Suresh 2500",
+    "expected": {
+      "customerName": "Suresh",
+      "amountPaise": 250000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-50",
+    "lang": "en",
+    "text": "Mahesh paid 100",
+    "expected": {
+      "customerName": "Mahesh",
+      "amountPaise": 10000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-51",
+    "lang": "en",
+    "text": "hello",
+    "expected": null,
+    "holdout": false
+  },
+  {
+    "id": "en-52",
+    "lang": "en",
+    "text": "Dinesh 200 udhaar",
+    "expected": {
+      "customerName": "Dinesh",
+      "amountPaise": 20000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-53",
+    "lang": "en",
+    "text": "Priya 300",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 30000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-54",
+    "lang": "en",
+    "text": "Sunita paid 450",
+    "expected": {
+      "customerName": "Sunita",
+      "amountPaise": 45000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-55",
+    "lang": "en",
+    "text": "Credit 500 to Anita",
+    "expected": {
+      "customerName": "Anita",
+      "amountPaise": 50000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-56",
+    "lang": "en",
+    "text": "Ramesh 750 udhaar",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 75000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-57",
+    "lang": "en",
+    "text": "Suresh 1000 udhaar, 50 wapas aaye",
+    "expected": null,
+    "holdout": false
+  },
+  {
+    "id": "en-58",
+    "lang": "en",
+    "text": "Mahesh paid 1234",
+    "expected": {
+      "customerName": "Mahesh",
+      "amountPaise": 123400,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-59",
+    "lang": "en",
+    "text": "Credit 2500 to Rajesh",
+    "expected": {
+      "customerName": "Rajesh",
+      "amountPaise": 250000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-60",
+    "lang": "en",
+    "text": "Dinesh 100 udhaar",
+    "expected": {
+      "customerName": "Dinesh",
+      "amountPaise": 10000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-61",
+    "lang": "en",
+    "text": "Priya 150",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 15000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-62",
+    "lang": "en",
+    "text": "Sunita paid 200",
+    "expected": {
+      "customerName": "Sunita",
+      "amountPaise": 20000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-63",
+    "lang": "en",
+    "text": "Credit 300 to Anita",
+    "expected": {
+      "customerName": "Anita",
+      "amountPaise": 30000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-64",
+    "lang": "en",
+    "text": "Ramesh 450 udhaar",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 45000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-65",
+    "lang": "en",
+    "text": "Suresh 500",
+    "expected": {
+      "customerName": "Suresh",
+      "amountPaise": 50000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-66",
+    "lang": "en",
+    "text": "Mahesh paid 750",
+    "expected": {
+      "customerName": "Mahesh",
+      "amountPaise": 75000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-67",
+    "lang": "en",
+    "text": "Credit 1000 to Rajesh",
+    "expected": {
+      "customerName": "Rajesh",
+      "amountPaise": 100000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-68",
+    "lang": "en",
+    "text": "hello",
+    "expected": null,
+    "holdout": false
+  },
+  {
+    "id": "en-69",
+    "lang": "en",
+    "text": "Priya 2500",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 250000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-70",
+    "lang": "en",
+    "text": "Sunita paid 100",
+    "expected": {
+      "customerName": "Sunita",
+      "amountPaise": 10000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-71",
+    "lang": "en",
+    "text": "Credit 150 to Anita",
+    "expected": {
+      "customerName": "Anita",
+      "amountPaise": 15000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-72",
+    "lang": "en",
+    "text": "Ramesh 200 udhaar",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 20000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-73",
+    "lang": "en",
+    "text": "Suresh 300",
+    "expected": {
+      "customerName": "Suresh",
+      "amountPaise": 30000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-74",
+    "lang": "en",
+    "text": "Mahesh paid 450",
+    "expected": {
+      "customerName": "Mahesh",
+      "amountPaise": 45000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-75",
+    "lang": "en",
+    "text": "Credit 500 to Rajesh",
+    "expected": {
+      "customerName": "Rajesh",
+      "amountPaise": 50000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-76",
+    "lang": "en",
+    "text": "Dinesh 750 udhaar, 50 wapas aaye",
+    "expected": null,
+    "holdout": false
+  },
+  {
+    "id": "en-77",
+    "lang": "en",
+    "text": "Priya 1000",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 100000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-78",
+    "lang": "en",
+    "text": "Sunita paid 1234",
+    "expected": {
+      "customerName": "Sunita",
+      "amountPaise": 123400,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "en-79",
+    "lang": "en",
+    "text": "Credit 2500 to Anita",
+    "expected": {
+      "customerName": "Anita",
+      "amountPaise": 250000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-80",
+    "lang": "hinglish",
+    "text": "Ramesh ne 100 diya",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 10000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-81",
+    "lang": "hinglish",
+    "text": "Suresh 150 udhaar",
+    "expected": {
+      "customerName": "Suresh",
+      "amountPaise": 15000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-82",
+    "lang": "hinglish",
+    "text": "Mahesh 200 ka maal",
+    "expected": {
+      "customerName": "Mahesh",
+      "amountPaise": 20000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-83",
+    "lang": "hinglish",
+    "text": "Rajesh ne 300 diya",
+    "expected": {
+      "customerName": "Rajesh",
+      "amountPaise": 30000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-84",
+    "lang": "hinglish",
+    "text": "Dinesh 450 udhaar",
+    "expected": {
+      "customerName": "Dinesh",
+      "amountPaise": 45000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-85",
+    "lang": "hinglish",
+    "text": "hello",
+    "expected": null,
+    "holdout": false
+  },
+  {
+    "id": "hinglish-86",
+    "lang": "hinglish",
+    "text": "Sunita ne 750 diya",
+    "expected": {
+      "customerName": "Sunita",
+      "amountPaise": 75000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-87",
+    "lang": "hinglish",
+    "text": "Anita 1000 udhaar",
+    "expected": {
+      "customerName": "Anita",
+      "amountPaise": 100000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-88",
+    "lang": "hinglish",
+    "text": "Ramesh 1234 ka maal",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 123400,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-89",
+    "lang": "hinglish",
+    "text": "Suresh ne 2500 diya",
+    "expected": {
+      "customerName": "Suresh",
+      "amountPaise": 250000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-90",
+    "lang": "hinglish",
+    "text": "Mahesh 100 udhaar",
+    "expected": {
+      "customerName": "Mahesh",
+      "amountPaise": 10000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-91",
+    "lang": "hinglish",
+    "text": "Rajesh 150 ka maal",
+    "expected": {
+      "customerName": "Rajesh",
+      "amountPaise": 15000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-92",
+    "lang": "hinglish",
+    "text": "Dinesh ne 200 diya",
+    "expected": {
+      "customerName": "Dinesh",
+      "amountPaise": 20000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-93",
+    "lang": "hinglish",
+    "text": "Priya 300 udhaar",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 30000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-94",
+    "lang": "hinglish",
+    "text": "Sunita 450 ka maal",
+    "expected": {
+      "customerName": "Sunita",
+      "amountPaise": 45000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-95",
+    "lang": "hinglish",
+    "text": "Anita 500 udhaar, 50 wapas aaye",
+    "expected": null,
+    "holdout": false
+  },
+  {
+    "id": "hinglish-96",
+    "lang": "hinglish",
+    "text": "Ramesh 750 udhaar",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 75000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-97",
+    "lang": "hinglish",
+    "text": "Suresh 1000 ka maal",
+    "expected": {
+      "customerName": "Suresh",
+      "amountPaise": 100000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-98",
+    "lang": "hinglish",
+    "text": "Mahesh ne 1234 diya",
+    "expected": {
+      "customerName": "Mahesh",
+      "amountPaise": 123400,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-99",
+    "lang": "hinglish",
+    "text": "Rajesh 2500 udhaar",
+    "expected": {
+      "customerName": "Rajesh",
+      "amountPaise": 250000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-100",
+    "lang": "hinglish",
+    "text": "Dinesh 100 ka maal",
+    "expected": {
+      "customerName": "Dinesh",
+      "amountPaise": 10000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-101",
+    "lang": "hinglish",
+    "text": "Priya ne 150 diya",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 15000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-102",
+    "lang": "hinglish",
+    "text": "hello",
+    "expected": null,
+    "holdout": false
+  },
+  {
+    "id": "hinglish-103",
+    "lang": "hinglish",
+    "text": "Anita 300 ka maal",
+    "expected": {
+      "customerName": "Anita",
+      "amountPaise": 30000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-104",
+    "lang": "hinglish",
+    "text": "Ramesh ne 450 diya",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 45000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-105",
+    "lang": "hinglish",
+    "text": "Suresh 500 udhaar",
+    "expected": {
+      "customerName": "Suresh",
+      "amountPaise": 50000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-106",
+    "lang": "hinglish",
+    "text": "Mahesh 750 ka maal",
+    "expected": {
+      "customerName": "Mahesh",
+      "amountPaise": 75000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-107",
+    "lang": "hinglish",
+    "text": "Rajesh ne 1000 diya",
+    "expected": {
+      "customerName": "Rajesh",
+      "amountPaise": 100000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-108",
+    "lang": "hinglish",
+    "text": "Dinesh 1234 udhaar",
+    "expected": {
+      "customerName": "Dinesh",
+      "amountPaise": 123400,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-109",
+    "lang": "hinglish",
+    "text": "Priya 2500 ka maal",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 250000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-110",
+    "lang": "hinglish",
+    "text": "Sunita ne 100 diya",
+    "expected": {
+      "customerName": "Sunita",
+      "amountPaise": 10000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-111",
+    "lang": "hinglish",
+    "text": "Anita 150 udhaar",
+    "expected": {
+      "customerName": "Anita",
+      "amountPaise": 15000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-112",
+    "lang": "hinglish",
+    "text": "Ramesh 200 ka maal",
+    "expected": {
+      "customerName": "Ramesh",
+      "amountPaise": 20000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-113",
+    "lang": "hinglish",
+    "text": "Suresh ne 300 diya",
+    "expected": {
+      "customerName": "Suresh",
+      "amountPaise": 30000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-114",
+    "lang": "hinglish",
+    "text": "Mahesh 450 udhaar, 50 wapas aaye",
+    "expected": null,
+    "holdout": false
+  },
+  {
+    "id": "hinglish-115",
+    "lang": "hinglish",
+    "text": "Rajesh 500 ka maal",
+    "expected": {
+      "customerName": "Rajesh",
+      "amountPaise": 50000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-116",
+    "lang": "hinglish",
+    "text": "Dinesh ne 750 diya",
+    "expected": {
+      "customerName": "Dinesh",
+      "amountPaise": 75000,
+      "entryType": "PAYMENT_IN"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-117",
+    "lang": "hinglish",
+    "text": "Priya 1000 udhaar",
+    "expected": {
+      "customerName": "Priya",
+      "amountPaise": 100000,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-118",
+    "lang": "hinglish",
+    "text": "Sunita 1234 ka maal",
+    "expected": {
+      "customerName": "Sunita",
+      "amountPaise": 123400,
+      "entryType": "SALE"
+    },
+    "holdout": false
+  },
+  {
+    "id": "hinglish-119",
+    "lang": "hinglish",
+    "text": "hello",
+    "expected": null,
+    "holdout": false
+  }
+]

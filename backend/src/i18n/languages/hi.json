@@ -1,0 +1,12 @@
+{
+  "entry.new": "Naya entry: {customer} ka {amount} {type}.",
+  "entry.confirm": "Confirm ya cancel karein.",
+  "entry.confirmed": "Entry confirm ho gaya.",
+  "entry.cancelled": "Entry cancel ho gaya.",
+  "entry.not_found": "Yeh entry nahi mili, please dobara bhejein.",
+  "entry.format_help": "Try karein: Ramesh 300 udhaar",
+  "unsupported": "Main abhi sirf text process kar sakta hoon. Please text mein bhejein.",
+  "batch.summary": "Pending entries: {count}, total {total}.",
+  "batch.confirm_all": "Sab confirm karein",
+  "batch.review": "Review/Edit"
+}
