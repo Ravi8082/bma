@@ -70,11 +70,37 @@ async function handleText(message: InboxMessage, deps: InboundDeps): Promise<voi
   const text = textBody(message.body);
   if (!text) throw new Error("EMPTY_TEXT");
 
-  const parsed =
+  const parseResult =
     typeof deps.parser.parseAsync === "function"
       ? await deps.parser.parseAsync!(text, { maxAmountPaise: env.MAX_ENTRY_PAISE })
       : deps.parser.parse(text, { maxAmountPaise: env.MAX_ENTRY_PAISE });
-  if (!parsed) throw new Error(`EXTRACTION_FAILED: ${text.slice(0, 80)}`);
+
+  if (parseResult.kind === "NOT_AN_ENTRY") {
+    throw new Error(`EXTRACTION_FAILED: ${text.slice(0, 80)}`);
+  }
+  if (parseResult.kind === "NEEDS_CLARIFICATION") {
+    // Send a specific clarification question with tap options.
+    const sellerPhone = senderPhone(message.body);
+    if (sellerPhone) {
+      const sellerBidx = phoneBlindIndex(sellerPhone, deps.blindIndexKey);
+      await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+        await enqueueOutboundTx(db, {
+          shopId: message.shopId,
+          recipientPhoneBidx: sellerBidx,
+          recipientPhoneEnc: encryptField(sellerPhone, deps.keyRef, 1, { shopId: message.shopId, table: "outbox_events", column: "recipient_phone_enc" }),
+          keyVersion: 1,
+          messageType: "TEXT",
+          payload: {
+            to: sellerPhone,
+            text: `Clarification needed: ${parseResult.reason}. Please reply.`,
+            buttons: parseResult.options.map((o, i) => ({ id: `clarify:${i}:${o}`, title: o.slice(0, 20) })),
+          },
+        });
+      });
+    }
+    return; // no draft; message already marked DONE by caller
+  }
+  const parsed = parseResult.entry;
 
   const sellerPhone = senderPhone(message.body);
   if (!sellerPhone) throw new Error("MISSING_SELLER_PHONE");

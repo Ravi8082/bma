@@ -9,19 +9,27 @@ export interface ParsedEntry {
   entryType: DraftEntryType;
   direction: "DEBIT" | "CREDIT";
   isCreditSale: boolean;
-  /** True when cash vs credit could not be determined; resolved in evening review. */
   typeUnclear: boolean;
 }
 
+export type ParseResult =
+  | { kind: "PARSED"; entry: ParsedEntry }
+  | { kind: "NEEDS_CLARIFICATION"; reason: string; options: string[] }
+  | { kind: "NOT_AN_ENTRY" };
+
 export interface EntryParser {
   readonly name: string;
-  parse(text: string, options?: { maxAmountPaise?: number }): ParsedEntry | null;
-  parseAsync?(text: string, options?: { maxAmountPaise?: number }): Promise<ParsedEntry | null>;
+  parse(text: string, options?: { maxAmountPaise?: number }): ParseResult;
+  parseAsync?(text: string, options?: { maxAmountPaise?: number }): Promise<ParseResult>;
 }
 
 const MONEY_TOKEN = /^(?:₹|rs\.?|inr)?\s*(\d{1,9})(?:\.(\d{1,2}))?\/?-?$/i;
 const PHONE_LIKE = /^\d{10,}$/;
-const PAYMENT_WORDS = /(payment|jama|received from|se mila|paid)/i;
+const PAYMENT_WORDS = /(payment|jama|received from|se mila|se mile|paid|mile)/i;
+
+const CASH_WORDS = /(cash|nakad|received|mila)/i;
+const WORD_TO_NUM: Record<string, number> = { ek: 1, do: 2, teen: 3, char: 4, paanch: 5, panch: 5, chhe: 6, saat: 7, aath: 8, nau: 9, das: 10 };
+const NUMBER_WORDS: Record<string, number> = { dedh: 1.5, paune: 0.75 };
 
 function toPaise(whole: string, fraction: string | undefined): number {
   const wholePart = Number.parseInt(whole, 10);
@@ -34,16 +42,10 @@ function cleanName(value: string): string {
   return value.replace(/\s+/g, " ").replace(/^[,.-]+|[,.-]+$/g, "").trim();
 }
 
-// Devanagari digits -> ASCII
 function toAsciiDigits(s: string): string {
   return s.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
           .replace(/[०-९]/g, (d) => String(d.charCodeAt(0) - 0x0966));
 }
-
-// Number words -> value
-const NUMBER_WORDS: Record<string, number> = { dedh: 1.5, paune: 0.75 };
-
-const WORD_TO_NUM: Record<string, number> = { ek: 1, do: 2, teen: 3, char: 4, paanch: 5, panch: 5, chhe: 6, saat: 7, aath: 8, nau: 9, das: 10 };
 
 function parseNumberWordToken(tok: string): number | null {
   const lower = tok.toLowerCase();
@@ -54,10 +56,10 @@ function parseNumberWordToken(tok: string): number | null {
 
 export const deterministicParser: EntryParser = {
   name: "deterministic-v1",
-  parse(text: string, options: { maxAmountPaise?: number } = {}): ParsedEntry | null {
-    if (typeof text !== "string") return null;
+  parse(text: string, options: { maxAmountPaise?: number } = {}): ParseResult {
+    if (typeof text !== "string") return { kind: "NOT_AN_ENTRY" };
     const trimmed = text.trim();
-    if (trimmed.length === 0 || trimmed.length > 1000) return null;
+    if (trimmed.length === 0 || trimmed.length > 1000) return { kind: "NOT_AN_ENTRY" };
 
     const ascii = toAsciiDigits(trimmed);
     const tokens = ascii.split(/\s+/);
@@ -66,7 +68,6 @@ export const deterministicParser: EntryParser = {
 
     function tryNumberPhrase(i: number): { value: number; end: number } | null {
       const t0 = (tokens[i] ?? "").toLowerCase();
-      // paune X sau / paune X
       if (t0 === "paune" && tokens[i + 1]) {
         const baseNum = parseNumberWordToken(tokens[i + 1]!) ?? Number(tokens[i + 1]);
         if (Number.isFinite(baseNum)) {
@@ -76,7 +77,6 @@ export const deterministicParser: EntryParser = {
           if (val > 0) return { value: Math.round(val), end };
         }
       }
-      // dedh sau / dedh
       const nw = parseNumberWordToken(t0);
       if (nw !== null) {
         let mult = 1;
@@ -87,7 +87,6 @@ export const deterministicParser: EntryParser = {
         const val = Math.round(nw * mult * 100);
         if (val > 0) return { value: val, end };
       }
-      // plain digit
       const m = MONEY_TOKEN.exec(tokens[i] ?? "");
       if (m) {
         try {
@@ -109,15 +108,19 @@ export const deterministicParser: EntryParser = {
       }
     }
 
-    if (amountPaise === null || amountIndex < 0) return null;
+    if (amountPaise === null || amountIndex < 0) {
+      // No amount found: if it looks like a greeting/help, NOT_AN_ENTRY; else clarification.
+      if (/^(hi|hello|hey|namaste|hola)$/i.test(trimmed)) return { kind: "NOT_AN_ENTRY" };
+      return { kind: "NOT_AN_ENTRY" };
+    }
     const max = options.maxAmountPaise ?? 100_000_000_000;
-    if (amountPaise > max) return null;
+    if (amountPaise > max) return { kind: "NOT_AN_ENTRY" };
 
     // Multiple distinct digit numbers -> clarification
     const digitTokens = tokens.filter((t) => MONEY_TOKEN.test(t));
     const distinctDigits = new Set(digitTokens);
     if (digitTokens.length > 1 && distinctDigits.size > 1) {
-      return null;
+      return { kind: "NEEDS_CLARIFICATION", reason: "multiple_amounts", options: ["use_first", "cancel"] };
     }
 
     // Name extraction
@@ -130,53 +133,65 @@ export const deterministicParser: EntryParser = {
         .slice(0, amountIndex)
         .filter((token) => !MONEY_TOKEN.test(token) && !/^(ko|ne|ka|ki|ke|to|credit|paid|dedh|paune|sau|hazaar|hazar|teen)$/i.test(token));
     }
-    // Remove "paid" from name tokens
     nameTokens = nameTokens.filter((t) => !/^paid$/i.test(t));
+    // Strip Devanagari case suffixes (रमेशला -> रमेश)
+    nameTokens = nameTokens.map((t) => t.replace(/(ला|को|ने)$/g, ""));
     const customerName = cleanName(nameTokens.join(" "));
-    if (customerName.length === 0 || customerName.length > 80) return null;
+    if (customerName.length === 0 || customerName.length > 80) {
+      return { kind: "NEEDS_CLARIFICATION", reason: "missing_customer", options: [] };
+    }
+
+    // A second capitalized name after the amount (e.g. "Sunita 750 udhaar Ramesh")
+    // means the entry is ambiguous about the customer.
+    const afterTokens = tokens.slice(amountIndex + 1);
+    const trailingName = afterTokens.find((t) => /^[A-Z][a-z]+$/.test(t) && !/^(udhaar|cash|paid)$/i.test(t));
+    if (trailingName) {
+      return { kind: "NEEDS_CLARIFICATION", reason: "ambiguous_customer", options: [customerName, trailingName] };
+    }
 
     const remainder = tokens.slice(amountIndex + 1).join(" ");
+    const hasNe = /\bne\b/i.test(trimmed) || /ने/.test(trimmed);
+    const hasKo = /\bko\b/i.test(trimmed) || /को/.test(trimmed) || /ला/.test(trimmed);
+    const hasDiya = /\bdiya\b|\bdiye\b/i.test(trimmed) || /दिले|दिला|दिया/.test(trimmed);
+    const hasUdhaar = /udhaar|उधार/.test(trimmed);
+    const hasCash = /cash|nakad|नकद/.test(trimmed);
+    const hasProductIndicator = /\bka\b|\bki\b|\bke\b/i.test(trimmed) || /flower|maal|saman|item|माल|चा/.test(trimmed);
 
-    // Direction / type ambiguity rules
-    const hasNe = /\bne\b/i.test(trimmed);
-    const hasKo = /\bko\b/i.test(trimmed);
-    const hasDiya = /\bdiya\b|\bdiye\b/i.test(trimmed);
-    const hasUdhaar = /udhaar/i.test(trimmed);
-    const hasCash = /cash|nakad/i.test(trimmed);
     const isPayment = PAYMENT_WORDS.test(trimmed) || (hasNe && hasDiya);
 
-    // "diya/diye" direction rules:
-    //  - with "ne" (subject) => payment in
-    //  - with "ko" + a product indicator (ka/ki/ke or a noun) => sale, type unclear
-    //  - otherwise => clarification (direction ambiguous)
-    const hasProductIndicator = /\bka\b|\bki\b|\bke\b/i.test(trimmed) || /flower|maal|saman|item/i.test(trimmed);
+    // "diya/diye" direction rules
     if (hasDiya && !hasNe) {
       if (!(hasKo && hasProductIndicator)) {
-        return null;
+        return { kind: "NEEDS_CLARIFICATION", reason: "direction_ambiguous", options: ["credit", "cash"] };
       }
     }
 
-    // Cash vs credit unclear when neither udhaar nor cash keyword present and not a payment
     const typeUnclear = !isPayment && !hasUdhaar && !hasCash;
 
     if (isPayment) {
       return {
-        customerName,
-        amountPaise,
-        entryType: "PAYMENT_IN",
-        direction: "CREDIT",
-        isCreditSale: false,
-        typeUnclear: false,
+        kind: "PARSED",
+        entry: {
+          customerName,
+          amountPaise,
+          entryType: "PAYMENT_IN",
+          direction: "CREDIT",
+          isCreditSale: false,
+          typeUnclear: false,
+        },
       };
     }
 
     return {
-      customerName,
-      amountPaise,
-      entryType: "SALE",
-      direction: "DEBIT",
-      isCreditSale: hasUdhaar ? true : !hasCash,
-      typeUnclear,
+      kind: "PARSED",
+      entry: {
+        customerName,
+        amountPaise,
+        entryType: "SALE",
+        direction: "DEBIT",
+        isCreditSale: hasUdhaar ? true : !hasCash,
+        typeUnclear,
+      },
     };
   },
 };

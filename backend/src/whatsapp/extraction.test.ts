@@ -40,21 +40,21 @@ describe("LlmExtractionParser fallback", () => {
     const p = new StubLlmProvider();
     const parser = new LlmExtractionParser(p, "shop", { isOpen: () => true, recordFailure: () => {}, recordSuccess: () => {} }, 1000, { callsToday: 0 });
     const r = await parser.parseAsync!("Ramesh 300 udhaar");
-    expect(r?.customerName).toBe("Ramesh");
-    expect(r?.amountPaise).toBe(30000);
+    expect(r.kind === "PARSED" ? r.entry.customerName : null).toBe("Ramesh");
+    expect(r.kind === "PARSED" ? r.entry.amountPaise : null).toBe(30000);
   });
 
   it("falls back when the daily cap is exceeded", async () => {
     const p = new StubLlmProvider();
     const parser = new LlmExtractionParser(p, "11111111-2222-3333-4444-555555555555", { isOpen: () => false, recordFailure: () => {}, recordSuccess: () => {} }, 0, { callsToday: 0 });
     const r = await parser.parseAsync!("Ramesh 300 udhaar");
-    expect(r?.customerName).toBe("Ramesh");
+    expect(r.kind === "PARSED" ? r.entry.customerName : null).toBe("Ramesh");
   });
 
   it("falls back when consent is not privacy-v2", async () => {
     const p = new StubLlmProvider();
     const parser = new LlmExtractionParser(p, "11111111-2222-3333-4444-555555555555", { isOpen: () => false, recordFailure: () => {}, recordSuccess: () => {} }, 1000, { callsToday: 0 }, () => false);
     const r = await parser.parseAsync!("Ramesh 300 udhaar");
-    expect(r?.customerName).toBe("Ramesh");
+    expect(r.kind === "PARSED" ? r.entry.customerName : null).toBe("Ramesh");
   });
 });

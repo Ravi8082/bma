@@ -16,26 +16,30 @@ interface Case {
 
 type Outcome = "correct" | "clarification" | "extraction_failed" | "wrong_customer" | "wrong_type" | "wrong_amount_no_clarification" | "other";
 
-interface Result { case: Case; outcome: Outcome; parsed: ReturnType<typeof deterministicParser.parse> }
+interface Result { case: Case; outcome: Outcome; parsed: any }
 
-function classify(c: Case, parsed: ReturnType<typeof deterministicParser.parse>): Outcome {
+function classify(c: Case, parsed: any, isClarificationResult: boolean): Outcome {
+  // A case with expectClarification counts as correct ONLY if the parser returned
+  // NEEDS_CLARIFICATION. A parser result on such a case is a FAILURE.
+  if (c.expectClarification) {
+    if (isClarificationResult) return "correct";
+    // parser returned a result without flagging ambiguity -> failure
+    if (parsed && c.expected && parsed.amountPaise !== c.expected.amountPaise) return "wrong_amount_no_clarification";
+    if (parsed && c.expected && parsed.entryType !== c.expected.entryType) return "wrong_type";
+    if (parsed && c.expected && parsed.customerName !== c.expected.customerName) return "wrong_customer";
+    return "other";
+  }
   if (c.expected === null) {
-    // Unparseable or multi-number: a null result is a clarification/help reply.
-    if (parsed === null) return "correct"; // polite help reply counts as handled
-    // If parsed but expected null (multi-number case), check if clarification was expected.
-    if (c.expectClarification) return parsed ? "clarification" : "clarification";
+    // Unparseable: a NOT_AN_ENTRY (help reply) is correct.
+    if (parsed === null) return "correct";
     return "other";
   }
   if (parsed === null) {
-    // Expected a draft but got nothing -> clarification or extraction failed.
-    return c.text === "hello" ? "extraction_failed" : "clarification";
+    return c.text.trim().toLowerCase() === "hello" ? "extraction_failed" : "clarification";
   }
   if (parsed.customerName !== c.expected.customerName) return "wrong_customer";
   if (parsed.entryType !== c.expected.entryType) return "wrong_type";
-  if (parsed.amountPaise !== c.expected.amountPaise) {
-    // If this case expected clarification, count as clarification; else wrong amount without clarification.
-    return c.expectClarification ? "clarification" : "wrong_amount_no_clarification";
-  }
+  if (parsed.amountPaise !== c.expected.amountPaise) return "wrong_amount_no_clarification";
   return "correct";
 }
 
@@ -46,8 +50,10 @@ function run(cases: Case[]): { results: Result[]; summary: Record<Outcome, numbe
   };
   const results: Result[] = [];
   for (const c of cases) {
-    const parsed = deterministicParser.parse(c.text, { maxAmountPaise: 100_000_000_000 });
-    const outcome = classify(c, parsed);
+    const parsedResult = deterministicParser.parse(c.text, { maxAmountPaise: 100_000_000_000 });
+    const parsed = parsedResult.kind === "PARSED" ? parsedResult.entry : null;
+    const isClarification = parsedResult.kind === "NEEDS_CLARIFICATION";
+    const outcome = classify(c, parsed, isClarification);
     summary[outcome] += 1;
     results.push({ case: c, outcome, parsed });
   }

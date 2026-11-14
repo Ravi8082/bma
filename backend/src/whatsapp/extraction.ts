@@ -5,7 +5,7 @@
  * receives customer lists, phone numbers or ledger data, and never calls tools. Its output
  * is validated against a strict schema; any failure falls back to the deterministic parser.
  */
-import type { EntryParser, ParsedEntry } from "./parser";
+import type { EntryParser, ParsedEntry, ParseResult } from "./parser";
 import { deterministicParser } from "./parser";
 import { recordCost } from "../costLog";
 
@@ -82,14 +82,12 @@ export class LlmExtractionParser implements EntryParser {
     private readonly consentOk: () => boolean = () => true,
   ) {}
 
-  parse(text: string, options?: { maxAmountPaise?: number }): ParsedEntry | null {
-    // Synchronous interface: the LLM call is async, so this parser is used via parseAsync.
-    // For callers that only have the sync interface, fall back to deterministic.
-    void text; void options;
-    return null;
+  parse(text: string, options?: { maxAmountPaise?: number }): ParseResult {
+    // Synchronous interface: fall back to deterministic.
+    return deterministicParser.parse(text, options);
   }
 
-  async parseAsync(text: string, options?: { maxAmountPaise?: number }): Promise<ParsedEntry | null> {
+  async parseAsync(text: string, options?: { maxAmountPaise?: number }): Promise<ParseResult> {
     const max = options?.maxAmountPaise ?? 100_000_000_000;
     const redacted = redactPhones(text);
 
@@ -151,7 +149,7 @@ export class LlmExtractionParser implements EntryParser {
       return deterministicParser.parse(text, options);
     }
 
-    if (extracted.amountPaise > max) return null;
+    if (extracted.amountPaise > max) return { kind: "NOT_AN_ENTRY" };
 
     const direction: "DEBIT" | "CREDIT" =
       extracted.entryType === "PAYMENT_IN" || extracted.entryType === "PAYMENT_OUT" ? "CREDIT" : "DEBIT";
@@ -159,12 +157,15 @@ export class LlmExtractionParser implements EntryParser {
     await recordCost({ shopId: this.shopId, provider: this.provider.name, model: this.provider.model, kind: "LLM", outcome: "SUCCESS", promptTokens, completionTokens, costPaise: 0 });
 
     return {
-      customerName: extracted.customerName,
-      amountPaise: extracted.amountPaise,
-      entryType: extracted.entryType,
-      direction,
-      isCreditSale: extracted.isCreditSale,
-      typeUnclear: extracted.typeUnclear,
+      kind: "PARSED",
+      entry: {
+        customerName: extracted.customerName,
+        amountPaise: extracted.amountPaise,
+        entryType: extracted.entryType,
+        direction,
+        isCreditSale: extracted.isCreditSale,
+        typeUnclear: extracted.typeUnclear,
+      },
     };
   }
 }
@@ -175,13 +176,13 @@ export class StubLlmProvider implements LlmProvider {
   readonly model = "stub-v1";
   async extract(input: { text: string }): Promise<{ raw: string; promptTokens: number; completionTokens: number }> {
     const det = deterministicParser.parse(input.text);
-    if (!det) throw new Error("no extraction");
+    if (det.kind !== "PARSED") throw new Error("no extraction");
     const raw = JSON.stringify({
-      customerName: det.customerName,
-      amountPaise: det.amountPaise,
-      entryType: det.entryType,
-      isCreditSale: det.isCreditSale,
-      typeUnclear: det.typeUnclear,
+      customerName: det.entry.customerName,
+      amountPaise: det.entry.amountPaise,
+      entryType: det.entry.entryType,
+      isCreditSale: det.entry.isCreditSale,
+      typeUnclear: det.entry.typeUnclear,
     });
     return { raw, promptTokens: 0, completionTokens: 0 };
   }

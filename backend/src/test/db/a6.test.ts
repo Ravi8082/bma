@@ -71,7 +71,8 @@ describe("A6: no DB transaction open during LLM call", () => {
           client.release();
         }
         const det = deterministicParser.parse(input.text);
-        const raw = JSON.stringify({ customerName: det?.customerName ?? "X", amountPaise: det?.amountPaise ?? 100, entryType: det?.entryType ?? "SALE", isCreditSale: det?.isCreditSale ?? true });
+        const entry = det.kind === "PARSED" ? det.entry : null;
+        const raw = JSON.stringify({ customerName: entry?.customerName ?? "X", amountPaise: entry?.amountPaise ?? 100, entryType: entry?.entryType ?? "SALE", isCreditSale: entry?.isCreditSale ?? true, typeUnclear: entry?.typeUnclear ?? false });
         return { raw, promptTokens: 0, completionTokens: 0 };
       }
     }
