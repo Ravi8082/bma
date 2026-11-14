@@ -6,8 +6,15 @@ Phase 4 proceeds against the simulator; only the `phase-3-done` tag waits for th
 Read with `docs/11-threat-model.md`, `docs/12-security-test-plan.md`, `docs/13-rls-and-roles.md`,
 and the Phase 3 acceptance checklist (`docs/phase-3-acceptance-checklist.md`).
 
-Phase 4 is delivered in three parts. Each part is approved and accepted on its own before the
-next starts. Part 4a must be accepted (evaluation results shown) before 4b begins; 4b before 4c.
+Phase 4 is delivered in three parts, each split into slices. Part 4a is delivered in two
+slices: 4a-1 and 4a-2. 4a-1 starts immediately after approval; 4a-2 follows without a
+separate approval gate. Part 4a must be accepted (evaluation results shown) before 4b begins;
+4b before 4c.
+
+- **4a-1**: parser and LLM with fallback, quick entry, stable customers and ambiguous names,
+  optional phone, immediate confirm, Hindi and English catalog, cost_log, evaluation.
+- **4a-2**: evening batch and summary, edit, undo, move, alias learning, label prompt, quiet
+  hours, seller templates.
 
 ## Scope
 
@@ -53,7 +60,7 @@ amounts against the transcript, plan limits).
 | A3 | LLM timeout / error / malformed JSON falls back to the deterministic parser | Mock LLM throws → draft is still created from the deterministic parse; `cost_log` records the failure |
 | A4 | LLM output is validated against a strict JSON schema before use (customer name, amount, type); invalid output → fallback | Fuzzed LLM output → deterministic fallback, no partial draft |
 | A5 | No customer name or amount is ever invented by the LLM; missing fields → fallback | Transcript "Ramesh udhaar" (no amount) → fallback returns null → `EXTRACTION_FAILED` |
-| A6 | Extraction runs inside the worker, never on the request path; the webhook only persists | Webhook returns 200 before extraction; extraction happens in `processNextInboxMessageForShop` |
+| A6 | Extraction runs inside the worker, never on the request path; the webhook only persists; **no DB transaction or lock is open during an LLM or STT call** | Webhook returns 200 before extraction; a test asserts `pg_stat_activity` shows no open transaction during the call |
 | A7 | **LLM safety — structured output only**: the model is called with a JSON-schema response format; free text is never parsed | Mock returns prose → rejected, fallback used |
 | A8 | **LLM safety — strict validation**: every extracted number must appear in the source text after normalisation (number words like "dedh sau" and "paune teen sau", Devanagari digits, Indian grouping); a mismatch forces clarification, not a draft. Tests cover each normalisation | LLM returns amount 500 for text "Ramesh 300 udhaar" → clarification, no draft; "dedh sau" → 15000 paise; "३००" → 30000 paise; "1,23,456" → 12345600 paise |
 | A9 | **LLM safety — no tools, no DB access**: the model receives only the message text and a fixed prompt; it cannot call tools or read data | Prompt contains no tool definitions; test asserts the request body has no `tools`/`functions` |
@@ -78,11 +85,11 @@ amounts against the transcript, plan limits).
 | B7 | **Multiple entries in one text message** are split into separate drafts | "Ramesh 300, Suresh 200" → two drafts, two confirmations |
 | B8 | **Number inline in quick entry with read-back** | "Ramesh 300 his number is 9876543210" → draft carries the phone; confirmation reads it back |
 | B9 | **Edit flow**: name, amount and type can be edited before confirm | Seller replies "edit amount 250" → draft amount becomes 25000; confirmation re-sent |
-| B10 | **Undo** a confirmed entry via a reversal command | "undo last" → reversal row, balance restored, receipt sent |
+| B10 | **Undo** a confirmed entry via a reversal command; shows which entry will be reversed and requires a tap to confirm for old or large entries | "undo last" → preview message with entry details + confirm button; tap → reversal row, balance restored, receipt sent |
 | B11 | **"Move this entry to another customer"** via reversal + re-post | "move to Suresh" → original reversed, new draft for Suresh |
 | B12 | **Plain-text receipt** sent to the seller after confirm | Confirmation message contains amount, type, customer, new balance |
 | B13 | **Evening summary** lists per-customer balances and a separate list of customers without a number | Summary message has two sections: "with number" and "without number" |
-| B14 | **Shortcut and alias learning** after confirmation | After two "Ramesh" → "R", seller can use "R 300"; alias stored per shop |
+| B14 | **Shortcut and alias learning** after confirmation only; never single-letter collisions; never one alias for two customers | Alias stored per shop only after confirm; "R" is rejected if ambiguous; alias never shared |
 | B15 | **One-time label prompt** when a second same-name customer appears | Second "Ramesh" → one prompt asking for a distinguishing label; never repeats |
 
 ---
@@ -95,7 +102,7 @@ amounts against the transcript, plan limits).
 | C2 | Name matching is normalised (case, spacing, transliteration-insensitive where configured) | "ramesh", "Ramesh ", "RAMESH" → same customer |
 | C3 | An ambiguous name (two customers with the same normalised name) is never auto-picked; the clarification goes to the evening review unless safety-critical | Two "Ramesh" customers → draft held with `customer_id = NULL`; clarification deferred to evening review, unless the amount exceeds the safety threshold |
 | C4 | A clarification reply ("Ramesh from market" / a phone number) resolves the ambiguity | Seller replies with a disambiguator → draft is updated with the chosen customer |
-| C5 | An ambiguous match that is never resolved expires with the draft TTL and notifies the seller | After `DRAFT_TTL_MINUTES` → draft expired, polite notice |
+| C5 | An ambiguous match that is never resolved uses the long draft TTL; expired entries are recoverable by the seller ("show expired entries"), not an admin command | After `DRAFT_LONG_TTL_DAYS` → draft expired, recoverable by seller; no data loss |
 | C6 | Customers are scoped by `shop_id` and `FORCE RLS` | Cross-shop customer ID → rejected; `catalog.test.ts` covers the table |
 
 ---
@@ -180,7 +187,7 @@ amounts against the transcript, plan limits).
 | I2 | Downloaded audio is transcribed by the configured STT provider; the transcript is shown in the confirmation message | Stub STT returns a fixed transcript; confirmation includes "Heard: ..." |
 | I9 | **Audio retention**: keep audio encrypted only until transcription succeeds or the message is dead-lettered, then delete; hard maximum retention enforced | Audio deleted on success; on dead-letter, deleted after `AUDIO_MAX_RETENTION_HOURS`; no file remains |
 | I10 | **Consent text updated** to disclose third-party speech processing | Consent version bumped; `docs/` and onboarding copy mention it |
-| I3 | Audio is deleted from storage immediately after transcription; no audio is retained | After processing, `media_assets` row for audio is deleted; storage has no file |
+| I3 | (superseded by I9) | — |
 | I4 | The transcribed amount is cross-checked against the parsed amount; a mismatch asks for confirmation | Transcript "Ramesh 300" but parsed "Ramesh 30" → clarification message |
 | I5 | Voice notes respect plan limits (count and duration per month) | Exceeding the limit → polite refusal, no download, no transcription |
 | I6 | A failed transcription is retried via the outbox and eventually dead-lettered | STT throws → message retried 3 times → dead letter + seller notice |
@@ -230,14 +237,26 @@ amounts against the transcript, plan limits).
 
 ---
 
+## N. WhatsApp interactive limits (all parts)
+
+| # | Requirement | Acceptance test |
+|---|---|---|
+| N1 | Outbound interactive messages respect Meta limits (buttons ≤ 3, button title ≤ 20 chars, list rows ≤ 10, body ≤ 1024 chars) | Batch messages with >3 entries use a summary + paged review |
+| N2 | Limits are verified against current Meta documentation and tested | Test asserts a 4-button payload is rejected/truncated; numbers cited in a comment with doc link |
+
+## M. 24-hour service window (all parts)
+
+| # | Requirement | Acceptance test |
+|---|---|---|
+| M1 | Every outbound message to the seller checks the customer service window; if closed, use an approved utility template | Window closed → outbound uses template message type |
+| M2 | If no template is available, queue the message until the seller's next inbound message; never drop | No template configured → message stays QUEUED with `next_attempt_at` NULL until inbound |
+| M3 | Tests cover both the template path and the queue-and-wait path | Two tests, both green |
+
 ## Test inventory expected
 
-4a: 67 new tests (A 14, B 15, C 6, D 8, E 10, F 4, G 7, H 6, K 6, L 6, plus 5 for edit/undo/move/receipt/alias/label).
-4b: ~12 new tests (I 10, plus K additions).
-4c: ~8 new tests per language (J 4, plus catalog parity).
-
-Note: the count above is tests, not rules; several requirements (A7-A11) are verified by
-multiple tests and by the evaluation command, not by a single test.
+Rule: every checklist item maps to a named test or an explicitly stated non-test control
+(e.g. a migration, a grant, a documentation sign-off). No aggregate test-count estimate is
+maintained; the traceability matrix records the mapping.
 
 CI gates: all pass, typecheck clean, lint clean, no skipped security test.
 
