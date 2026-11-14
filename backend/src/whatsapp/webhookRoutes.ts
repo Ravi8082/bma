@@ -1,27 +1,23 @@
 import { Router } from "express";
 import { verifyWebhookSignature } from "./webhookSignature";
+import { handleWebhookGet, handleWebhookPost } from "./webhookController";
 
+/**
+ * WhatsApp webhook routes.
+ *
+ * GET  /webhooks/whatsapp  — Meta subscription verification.
+ * POST /webhooks/whatsapp  — signature check over the raw body, then durable persistence.
+ *                            The handler responds only after the insert commits.
+ */
 export function createWebhookRouter(appSecret: string, verifyToken: string): Router {
   const router = Router();
 
-  // GET verification
   router.get("/", (req, res) => {
-    const mode = req.query["hub.mode"];
-    const token = req.query["hub.verify_token"];
-    const challenge = req.query["hub.challenge"];
-
-    if (mode === "subscribe" && token === verifyToken && typeof challenge === "string") {
-      res.status(200).send(challenge);
-      return;
-    }
-    res.status(403).json({ ok: false, error: { code: "VERIFICATION_FAILED", message: "invalid verify token" } });
+    handleWebhookGet(req, res, verifyToken);
   });
 
-  // POST webhook (signature verified before handler)
-  router.post("/", verifyWebhookSignature(appSecret), (_req, res) => {
-    // The handler persists the raw message and queues processing.
-    // For Phase 3, we acknowledge receipt; processing happens via the inbox.
-    res.status(200).json({ ok: true });
+  router.post("/", verifyWebhookSignature(appSecret), (req, res) => {
+    void handleWebhookPost(req, res);
   });
 
   return router;

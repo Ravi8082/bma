@@ -1,9 +1,11 @@
 import { createServer } from "node:http";
 import { createApp } from "./app";
 import { connectDb, disconnectDb } from "./config/db";
-import { env } from "./config/env";
+import { env, isProduction } from "./config/env";
 import { logger } from "./config/logger";
 import { queue } from "./container";
+import { buildSchedulerDeps } from "./whatsapp/runtime";
+import { startScheduler, stopScheduler } from "./whatsapp/scheduler";
 
 const SHUTDOWN_TIMEOUT_MS = 25_000;
 
@@ -14,8 +16,20 @@ async function main(): Promise<void> {
     "database ready",
   );
 
-  const app = createApp();
+  const webhook = env.WHATSAPP_APP_SECRET
+    ? { appSecret: env.WHATSAPP_APP_SECRET, verifyToken: env.WHATSAPP_VERIFY_TOKEN }
+    : !isProduction
+      ? { appSecret: "dev-app-secret", verifyToken: env.WHATSAPP_VERIFY_TOKEN }
+      : undefined;
+  if (!webhook) {
+    logger.warn("WHATSAPP_APP_SECRET is not set; the webhook route is not mounted");
+  }
+
+  const app = createApp(webhook ? { webhook } : {});
   const server = createServer(app);
+
+  const scheduler = buildSchedulerDeps();
+  startScheduler(scheduler);
 
   server.listen(env.PORT, () => {
     logger.info(
@@ -40,6 +54,7 @@ async function main(): Promise<void> {
     });
 
     try {
+      stopScheduler();
       await queue.close();
       await disconnectDb();
       logger.info("shutdown complete");

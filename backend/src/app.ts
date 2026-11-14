@@ -9,9 +9,13 @@ import { errorHandler } from "./middleware/error";
 import { notFoundHandler } from "./middleware/notFound";
 import { requestId } from "./middleware/requestId";
 import { createSimulatorRouter } from "./simulator/simulator.routes";
+import { createWebhookRouter } from "./whatsapp/webhookRoutes";
+import { captureRawBody } from "./whatsapp/webhookSignature";
 
 export interface AppDependencies {
   health?: Partial<HealthDependencies>;
+  /** Mount the WhatsApp webhook only when a secret and verify token are configured. */
+  webhook?: { appSecret: string; verifyToken: string };
 }
 
 export function createApp(deps: AppDependencies = {}): Express {
@@ -28,7 +32,7 @@ export function createApp(deps: AppDependencies = {}): Express {
       credentials: true,
     }),
   );
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: "1mb", verify: captureRawBody }));
 
   app.use(
     pinoHttp({
@@ -47,6 +51,13 @@ export function createApp(deps: AppDependencies = {}): Express {
 
   if (!isProduction) {
     app.use("/simulator", createSimulatorRouter());
+  }
+
+  if (deps.webhook) {
+    app.use(
+      "/webhooks/whatsapp",
+      createWebhookRouter(deps.webhook.appSecret, deps.webhook.verifyToken),
+    );
   }
 
   app.use(notFoundHandler);

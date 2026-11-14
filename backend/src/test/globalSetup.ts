@@ -38,12 +38,24 @@ async function startEmbeddedPostgres(): Promise<ProviderHandle> {
   const admin = instance.getPgClient();
   await admin.connect();
   try {
-    const existing = await admin.query<{ exists: boolean }>(
-      "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS exists",
+    const existing = await admin.query<{ encoding: string }>(
+      "SELECT pg_encoding_to_char(encoding) AS encoding FROM pg_database WHERE datname = $1",
       [DATABASE_NAME],
     );
-    if (!existing.rows[0]?.exists) {
-      await admin.query(`CREATE DATABASE ${DATABASE_NAME}`);
+    const currentEncoding = existing.rows[0]?.encoding;
+    if (currentEncoding && currentEncoding !== "UTF8") {
+      // On Windows, initdb defaults to WIN1252, which cannot store the rupee sign.
+      // The cluster is disposable: drop the stale database and recreate it as UTF-8.
+      await admin.query(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+        [DATABASE_NAME],
+      );
+      await admin.query(`DROP DATABASE ${DATABASE_NAME}`);
+    }
+    if (!currentEncoding || currentEncoding !== "UTF8") {
+      await admin.query(
+        `CREATE DATABASE ${DATABASE_NAME} ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0`,
+      );
     }
   } finally {
     await admin.end();
@@ -101,7 +113,9 @@ async function bootstrap(bootstrapUrl: string): Promise<string> {
     [DATABASE_NAME],
   );
   if (!created.rows[0]?.exists) {
-    await bootstrap.query(`CREATE DATABASE ${DATABASE_NAME} OWNER bma_migrator`);
+    await bootstrap.query(
+      `CREATE DATABASE ${DATABASE_NAME} OWNER bma_migrator ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0`,
+    );
   } else {
     await bootstrap.query(`ALTER DATABASE ${DATABASE_NAME} OWNER TO bma_migrator`);
   }

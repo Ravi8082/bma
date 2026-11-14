@@ -1,78 +1,109 @@
 /**
- * Outbox processor and lease sweeper with in-process scheduler.
+ * Scheduler for the lease sweeper and outbox sender.
  *
- * The scheduler is guarded so it is safe on multiple instances:
- * only one instance holds the advisory lock at a time.
+ * Safe on multiple instances: a session-level PostgreSQL advisory lock makes exactly one
+ * process run a tick at a time. Each item is still claimed with SKIP LOCKED, so a process
+ * that stalls cannot block the others after its lock is released.
  */
 
-import { withTransaction } from "../config/db";
-import { claimNextGlobal, reclaimExpiredLeases } from "./inbox";
-import { claimNextOutbound, markFailed, markSent } from "./outbound";
+import { getPool } from "../config/db";
+import { listShopIdsWithPendingInbox, listShopIdsWithQueuedOutbox, reclaimExpiredLeases } from "./inbox";
+import { processNextInboxMessageForShop, type InboundDeps } from "./inboundRouter";
+import { processNextOutboundForShop, type OutboundDeps } from "./outboundSender";
+
+export type SchedulerDeps = InboundDeps & OutboundDeps;
+
+const SCHEDULER_LOCK_KEY = "918273645";
+const MAX_ROUNDS = 50;
 
 let schedulerHandle: ReturnType<typeof setInterval> | null = null;
-let isRunning = false;
+let tickInFlight = false;
 
-export function startScheduler(intervalMs = 30_000): void {
-  if (schedulerHandle) return; // already running
-  schedulerHandle = setInterval(async () => {
-    if (isRunning) return; // prevent overlapping runs
-    isRunning = true;
-    try {
-      await runSweeper();
-    } finally {
-      isRunning = false;
+export interface TickResult {
+  skipped: boolean;
+  inboxProcessed: number;
+  outboxProcessed: number;
+  leasesReclaimed: number;
+}
+
+export async function runSchedulerTick(deps: SchedulerDeps): Promise<TickResult> {
+  const client = await getPool().connect();
+  let acquired = false;
+  let leasesReclaimed = 0;
+  let inboxProcessed = 0;
+  let outboxProcessed = 0;
+
+  try {
+    const lock = await client.query<{ acquired: boolean }>(
+      "SELECT pg_try_advisory_lock($1::bigint) AS acquired",
+      [SCHEDULER_LOCK_KEY],
+    );
+    acquired = lock.rows[0]?.acquired === true;
+    if (!acquired) return { skipped: true, inboxProcessed: 0, outboxProcessed: 0, leasesReclaimed: 0 };
+
+    leasesReclaimed = await reclaimExpiredLeases();
+
+    for (let round = 0; round < MAX_ROUNDS; round += 1) {
+      const shopIds = await listShopIdsWithPendingInbox();
+      if (shopIds.length === 0) break;
+      let progressed = false;
+      for (const shopId of shopIds) {
+        const result = await processNextInboxMessageForShop(shopId, deps);
+        if (result.processed) {
+          progressed = true;
+          inboxProcessed += 1;
+        }
+      }
+      if (!progressed) break;
     }
-  }, intervalMs);
+
+    for (let round = 0; round < MAX_ROUNDS; round += 1) {
+      const shopIds = await listShopIdsWithQueuedOutbox();
+      if (shopIds.length === 0) break;
+      let progressed = false;
+      for (const shopId of shopIds) {
+        const result = await processNextOutboundForShop(shopId, deps);
+        if (result.processed) {
+          progressed = true;
+          outboxProcessed += 1;
+        }
+      }
+      if (!progressed) break;
+    }
+
+    return { skipped: false, inboxProcessed, outboxProcessed, leasesReclaimed };
+  } finally {
+    if (acquired) {
+      try {
+        await client.query("SELECT pg_advisory_unlock($1::bigint)", [SCHEDULER_LOCK_KEY]);
+      } catch {
+        // The connection is about to be released; a failed unlock is not actionable here.
+      }
+    }
+    client.release();
+  }
+}
+
+export function startScheduler(deps: SchedulerDeps, intervalMs = 30_000): void {
+  if (schedulerHandle) return;
+  const tick = async (): Promise<void> => {
+    if (tickInFlight) return;
+    tickInFlight = true;
+    try {
+      await runSchedulerTick(deps);
+    } catch {
+      // A failed tick is retried on the next interval; per-item failures are already recorded.
+    } finally {
+      tickInFlight = false;
+    }
+  };
+  void tick();
+  schedulerHandle = setInterval(() => void tick(), intervalMs);
 }
 
 export function stopScheduler(): void {
   if (schedulerHandle) {
     clearInterval(schedulerHandle);
     schedulerHandle = null;
-  }
-}
-
-async function runSweeper(): Promise<void> {
-  // Reclaim expired leases
-  await reclaimExpiredLeases();
-
-  // Process one inbox message (global sweep)
-  const claimed = await claimNextGlobal();
-  if (claimed) {
-    // Processing happens here (outside transaction). For Phase 3, we just mark as DONE
-    // after processing. In Phase 4+, this will call the extraction pipeline.
-    await markInboxDone(claimed.id);
-  }
-
-  // Process one outbound message
-  // (In a real system, this iterates over shops. For now, we skip — the outbox
-  //  processor is triggered per-shop by the application.)
-}
-
-async function markInboxDone(messageId: string): Promise<void> {
-  await withTransaction(async (client) => {
-    await client.query(
-      `UPDATE app.inbox_messages SET status = 'DONE', processed_at = now(), lease_until = NULL, updated_at = now() WHERE id = $1`,
-      [messageId],
-    );
-  });
-}
-
-export async function processOutboxForShop(shopId: string, sendFn: (msg: { id: string; payload: Record<string, unknown> }) => Promise<string>): Promise<void> {
-  const claimed = await claimNextOutbound(shopId);
-  if (!claimed) return;
-
-  try {
-    const providerId = await sendFn({ id: claimed.id, payload: claimed.payload });
-    await markSent(claimed.id, providerId);
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    const result = await markFailed(claimed.id, msg);
-    if (result === "DEAD") {
-      // Notify seller (handled by caller or a separate notification)
-      // Alert is raised here
-      void claimed;
-    void msg;
-    }
   }
 }
