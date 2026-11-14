@@ -1093,3 +1093,44 @@ describe("task A: ten-message FIFO", () => {
     expect(processed).toEqual(ordered.map((row) => row.id));
   });
 });
+describe("task A: immediate-confirm round trip (Ramesh 300 udhaar)", () => {
+  it("webhook -> draft -> confirm -> receipt -> undo, with no lost message", async () => {
+    const phone = uniqueSellerPhone();
+    const { shopId } = await seedSeller(phone);
+    const waId = `wamid.${randomUUID()}`;
+
+    expect((await postWebhook(buildPayload({ waId, from: phone, text: "Ramesh 300 udhaar" }))).status).toBe(200);
+    expect((await processNextInboxMessageForShop(shopId, deps)).outcome).toBe("DONE");
+
+    const draftId = (await drafts(shopId))[0]?.id ?? "";
+    expect(draftId).not.toBe("");
+
+    const confirmWaId = `wamid.${randomUUID()}`;
+    expect(
+      (
+        await postWebhook(
+          buildPayload({ waId: confirmWaId, from: phone, type: "interactive", interactiveId: `confirm:${draftId}` }),
+        )
+      ).status,
+    ).toBe(200);
+    expect((await processNextInboxMessageForShop(shopId, deps)).outcome).toBe("DONE");
+
+    await processNextOutboundForShop(shopId, deps);
+    const receipt = await processNextOutboundForShop(shopId, deps);
+    expect(receipt.state).toBe("SENT");
+    const messages = store.list({ to: phone });
+    expect(messages.some((m) => m.body.includes("Entry confirmed"))).toBe(true);
+
+    const confirmed = await drafts(shopId);
+    const entryId = confirmed[0]?.confirmed_entry_id ?? null;
+    expect(entryId).not.toBeNull();
+    if (!entryId) throw new Error("no entry id");
+
+    const reversal = await reverseLedgerEntry(shopId, entryId, "seller undo");
+    expect(reversal.reversalEntryId).not.toBe(entryId);
+    expect(await customerBalance(shopId)).toBe(0);
+
+    const secondReceipt = await processNextOutboundForShop(shopId, deps);
+    expect(["SENT", "EMPTY"]).toContain(secondReceipt.state);
+  });
+});

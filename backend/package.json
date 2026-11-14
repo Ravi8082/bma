@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:catalog": "vitest run src/test/db/catalog.test.ts",
-    "eval:extraction": "tsx src/scripts/eval-extraction.ts"
+    "eval:extraction": "tsx src/scripts/eval-extraction.ts",
+    "eval:deterministic": "tsx src/scripts/eval-deterministic.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",
