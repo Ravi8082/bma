@@ -127,13 +127,18 @@ export const deterministicParser: EntryParser = {
     let nameTokens: string[];
     const toIndex = tokens.findIndex((t, i) => i > amountIndex && /^to$/i.test(t));
     if (toIndex >= 0) {
-      nameTokens = tokens.slice(toIndex + 1).filter((token) => !MONEY_TOKEN.test(token));
+      nameTokens = tokens.slice(toIndex + 1).filter((token) => !MONEY_TOKEN.test(token) && !PHONE_LIKE.test(token.replace(/\D/g, "")));
     } else {
       nameTokens = tokens
         .slice(0, amountIndex)
-        .filter((token) => !MONEY_TOKEN.test(token) && !/^(ko|ne|ka|ki|ke|to|credit|paid|dedh|paune|sau|hazaar|hazar|teen)$/i.test(token));
+        .filter(
+          (token) =>
+            !MONEY_TOKEN.test(token) &&
+            !PHONE_LIKE.test(token.replace(/\D/g, "")) &&
+            !/^(ko|ne|ka|ki|ke|to|credit|paid|dedh|paune|sau|hazaar|hazar|teen)$/i.test(token),
+        );
     }
-    nameTokens = nameTokens.filter((t) => !/^paid$/i.test(t));
+    nameTokens = nameTokens.filter((t) => !/^paid$/i.test(t) && !PHONE_LIKE.test(t.replace(/\D/g, "")));
     // Strip Devanagari case suffixes (रमेशला -> रमेश)
     nameTokens = nameTokens.map((t) => t.replace(/(ला|को|ने)$/g, ""));
     const customerName = cleanName(nameTokens.join(" "));

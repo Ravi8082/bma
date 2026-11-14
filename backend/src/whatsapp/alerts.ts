@@ -44,3 +44,15 @@ export async function raiseOutboxDeadLetter(
     attempts: 3,
   });
 }
+
+export async function raiseOutboxStale(
+  shopId: string,
+  outboxId: string,
+): Promise<void> {
+  await raise("OUTBOX_STALE_QUEUED", outboxId, {
+    shopId,
+    outboxId,
+    error: "queued longer than 24 hours",
+    attempts: 0,
+  });
+}

@@ -25,6 +25,7 @@ export interface OutboundMessage {
   attemptCount: number;
   lastError: string | null;
   providerMessageId: string | null;
+  queuedAt: Date;
 }
 
 interface OutboxRow {
@@ -40,6 +41,7 @@ interface OutboxRow {
   attempt_count: number;
   last_error: string | null;
   provider_message_id: string | null;
+  queued_at: Date;
 }
 
 const MAX_ATTEMPTS = 3;
@@ -94,7 +96,7 @@ export async function claimNextOutbound(shopId: string): Promise<OutboundMessage
   return withTenant(contextFor(shopId), async (db) => {
     const rows = await db.query<OutboxRow>(
       sql`SELECT id, shop_id, message_id, recipient_phone_bidx, recipient_phone_enc, key_version,
-                 message_type, payload, state, attempt_count, last_error, provider_message_id
+                 message_type, payload, state, attempt_count, last_error, provider_message_id, queued_at
             FROM app.outbox_events
            WHERE shop_id = ${shopId}
              AND state IN ('QUEUED', 'FAILED')
@@ -125,6 +127,7 @@ export async function claimNextOutbound(shopId: string): Promise<OutboundMessage
       attemptCount: row.attempt_count + 1,
       lastError: row.last_error,
       providerMessageId: row.provider_message_id,
+      queuedAt: row.queued_at,
     };
   });
 }

@@ -6,7 +6,7 @@
 
 import { decryptField } from "../crypto/fieldEncryption";
 import type { MessagingProvider } from "../integrations/messaging/types";
-import { raiseOutboxDeadLetter } from "./alerts";
+import { raiseOutboxDeadLetter, raiseOutboxStale } from "./alerts";
 import { claimNextOutbound, markFailed, markSent, type OutboundState } from "./outbound";
 import { queryWithoutTenant, withTenant } from "../db/tenant";
 import { sql } from "../db/sql";
@@ -58,12 +58,43 @@ async function shopTemplate(shopId: string): Promise<string | null> {
   return rows[0]?.template_set ?? null;
 }
 
+/** Flush all queued outbound messages for a shop in original order, each exactly once. */
+export async function flushQueuedOutboundForShop(
+  shopId: string,
+  deps: OutboundDeps,
+): Promise<void> {
+  // Loop until no more claimable messages. Each call claims one, so this is serialized.
+  for (let i = 0; i < 1000; i++) {
+    const r = await processNextOutboundForShop(shopId, deps);
+    if (r.state === "EMPTY") break;
+  }
+}
+
 export async function processNextOutboundForShop(
   shopId: string,
   deps: OutboundDeps,
 ): Promise<OutboundResult> {
   const message = await claimNextOutbound(shopId);
   if (!message) return { processed: false, state: "EMPTY" };
+
+  // Stale policy: a message queued longer than 24 hours is dead-lettered with an alert
+  // and a seller notification; it is not silently dropped.
+  const ageMs = Date.now() - message.queuedAt.getTime();
+  if (ageMs > 24 * 60 * 60 * 1000) {
+    const reason = "queued longer than 24 hours";
+    const state = await markFailed(shopId, message.id, reason);
+    if (state === "DEAD") {
+      await raiseOutboxStale(shopId, message.id);
+      // notify seller
+      try {
+        if (message.recipientPhoneEnc) {
+          const to = decryptField(message.recipientPhoneEnc, deps.keyRef, { shopId, table: "outbox_events", column: "recipient_phone_enc" });
+          await deps.messaging.sendText({ to, text: "A queued message expired after 24 hours and was not sent." });
+        }
+      } catch { /* best effort */ }
+    }
+    return { processed: true, state, outboxId: message.id };
+  }
 
   // 24-hour service window: if closed, prefer an approved utility template; otherwise
   // re-queue (never drop) until the recipient messages again.

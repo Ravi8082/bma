@@ -320,8 +320,11 @@ describe("TEXT vertical slice through the simulator", () => {
     expect(pending[0]?.status).toBe("PENDING");
     const draftId = pending[0]?.id ?? "";
 
-    const sentConfirmation = await processNextOutboundForShop(shopId, deps);
-    expect(sentConfirmation.state).toBe("SENT");
+    // The user-initiated inbound opened the 24h window, so the queued confirmation was flushed and delivered during processing.
+    const sentStates = await withTenant({ shopId, actorType: "SYSTEM", actorId: "test" }, async (db) =>
+      db.query<{ state: string }>(sql`SELECT state FROM app.outbox_events WHERE shop_id = ${shopId} ORDER BY queued_at LIMIT 1`),
+    );
+    expect(sentStates[0]?.state).toBe("SENT");
     const confirmation = store.list({ to: phone });
     expect(
       confirmation.some(
@@ -344,9 +347,7 @@ describe("TEXT vertical slice through the simulator", () => {
     expect(confirmResponse.status).toBe(200);
     expect((await processNextInboxMessageForShop(shopId, deps)).outcome).toBe("DONE");
 
-    const sentReceipt = await processNextOutboundForShop(shopId, deps);
-    expect(sentReceipt.state).toBe("SENT");
-
+    // The confirm reply was user-initiated, so the queued receipt was flushed and delivered.
     const entries = await ledger(shopId);
     expect(entries).toHaveLength(1);
     expect(entries[0]?.amount_paise).toBe("30000");
@@ -1004,8 +1005,7 @@ describe("task A: unsupported message types", () => {
     expect(await drafts(shopId)).toHaveLength(0);
     expect(await auditCount(shopId, "UNSUPPORTED_MESSAGE_TYPE")).toBe(1);
 
-    const notification = await processNextOutboundForShop(shopId, deps);
-    expect(notification.state).toBe("SENT");
+    // The sticker was user-initiated, so the polite reply was flushed and delivered.
     const messages = store.list({ to: phone });
     expect(messages.some((m) => m.body.includes("I can only process text messages"))).toBe(true);
   });
@@ -1115,11 +1115,9 @@ describe("task A: immediate-confirm round trip (Ramesh 300 udhaar)", () => {
     ).toBe(200);
     expect((await processNextInboxMessageForShop(shopId, deps)).outcome).toBe("DONE");
 
-    await processNextOutboundForShop(shopId, deps);
-    const receipt = await processNextOutboundForShop(shopId, deps);
-    expect(receipt.state).toBe("SENT");
-    const messages = store.list({ to: phone });
-    expect(messages.some((m) => m.body.includes("Entry confirmed"))).toBe(true);
+    // The confirm reply was user-initiated, so the queued receipt was flushed and delivered.
+    const receiptMessages = store.list({ to: phone });
+    expect(receiptMessages.some((m) => m.body.includes("Entry confirmed"))).toBe(true);
 
     const confirmed = await drafts(shopId);
     const entryId = confirmed[0]?.confirmed_entry_id ?? null;

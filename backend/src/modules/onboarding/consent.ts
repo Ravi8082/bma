@@ -32,3 +32,24 @@ export async function getLatestConsentVersion(shopId: string): Promise<string | 
   });
   return rows[0]?.policy_version ?? null;
 }
+
+export async function recordConsent(shopId: string, userId: string, granted: boolean, version: string): Promise<void> {
+  await withTenant({ shopId, actorType: "SYSTEM", actorId: "consent" }, async (db) => {
+    await db.execute(
+      sql`INSERT INTO app.consent_records (shop_id, user_id, purpose, granted, policy_version, method)
+          VALUES (${shopId}, ${userId}, 'BOOKKEEPING', ${granted}, ${version}, 'WHATSAPP')`,
+    );
+  });
+}
+
+export async function reconsentAlreadySentToday(shopId: string): Promise<boolean> {
+  const rows = await withTenant({ shopId, actorType: "SYSTEM", actorId: "consent" }, async (db) => {
+    return db.query<{ count: string }>(
+      sql`SELECT COUNT(*) AS count FROM app.outbox_events
+           WHERE shop_id = ${shopId}
+             AND queued_at > now() - interval '1 day'
+             AND payload->>'text' ILIKE '%re-accept the updated privacy terms%'`,
+    );
+  });
+  return Number(rows[0]?.count ?? "0") > 0;
+}

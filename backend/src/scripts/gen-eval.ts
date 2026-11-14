@@ -67,6 +67,8 @@ for (const lang of ["hi", "en", "hinglish"] as const) {
 const holdout: Case[] = [];
 for (const lang of ["hi", "en", "hinglish"] as const) {
   for (let i = 0; i < 12; i++) holdout.push(makeCase(1000 + idx++, lang, true, false));
+  // Hard hold-out cases (number words, Devanagari, multiple numbers, ko/ne/se, same-name customers).
+  for (let i = 0; i < 8; i++) holdout.push(makeCase(2000 + idx++, lang, true, true));
 }
 
 mkdirSync(path.join(process.cwd(), "src", "eval"), { recursive: true });

@@ -13,16 +13,18 @@ import { withTenant, type TenantDb } from "../db/tenant";
 import { sql } from "../db/sql";
 import { raiseInboxDeadLetter } from "./alerts";
 import { cancelDraft, confirmDraft, formatPaise } from "./confirmation";
-import { needsReconsent, getLatestConsentVersion } from "../modules/onboarding/consent";
+import { needsReconsent, getLatestConsentVersion, recordConsent, reconsentAlreadySentToday } from "../modules/onboarding/consent";
 import { findOrCreateCustomer as findOrCreateCustomerModule } from "../modules/customers/customers";
 import { claimNextForShop, getInboxMessage, markDone, markFailed, type InboxMessage } from "./inbox";
 import { enqueueOutbound, enqueueOutboundTx } from "./outbound";
+import { flushQueuedOutboundForShop } from "./outboundSender";
 import type { EntryParser } from "./parser";
 
 export interface InboundDeps {
   parser: EntryParser;
   keyRef: string;
   blindIndexKey: string;
+  messaging?: import("../integrations/messaging/types").MessagingProvider;
 }
 
 export type InboxOutcome = "DONE" | "FAILED" | "DEAD" | "EMPTY";
@@ -184,6 +186,15 @@ async function handleText(message: InboxMessage, deps: InboundDeps): Promise<voi
 
 async function handleInteractive(message: InboxMessage, deps: InboundDeps): Promise<void> {
   const id = buttonId(message.body);
+  if (id === "consent:yes" || id === "consent:no") {
+    const granted = id === "consent:yes";
+    await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+      const users = await db.query<{ id: string }>(sql`SELECT id FROM app.users WHERE shop_id = ${message.shopId} AND role = 'OWNER' ORDER BY created_at LIMIT 1`);
+      const userId = users[0]?.id;
+      if (userId) await recordConsent(message.shopId, userId, granted, granted ? "privacy-v2" : "privacy-v1");
+    });
+    return;
+  }
   const match = id ? /^(confirm|cancel):([0-9a-fA-F-]{36})$/.exec(id) : null;
   if (!match) throw new Error("UNKNOWN_INTERACTIVE_ACTION");
   const action = match[1];
@@ -354,14 +365,22 @@ export async function processNextInboxMessageForShop(
   // Only block when a consent record exists with an outdated version. A shop with no
   // consent record yet is handled by onboarding, not by this gate.
   if (version !== null && needsReconsent(version)) {
-    await notifySellerOfConsent(message, deps);
-    await markDone(claimed.id);
-    return { processed: true, outcome: "DONE", messageId: claimed.id };
+    const already = await reconsentAlreadySentToday(message.shopId);
+    if (!already) await notifySellerOfConsent(message, deps);
   }
 
   try {
     await handleMessage(message, deps);
     await markDone(claimed.id);
+    // Release path for the 24-hour window: flush any queued outbound messages now
+    // that the seller has sent a user-initiated message (opens the window).
+    if (deps.messaging) {
+      try {
+        await flushQueuedOutboundForShop(message.shopId, { messaging: deps.messaging, keyRef: deps.keyRef });
+      } catch {
+        // Flushing is best-effort; the scheduler retries queued messages.
+      }
+    }
     return { processed: true, outcome: "DONE", messageId: claimed.id };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
