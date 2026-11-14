@@ -28,8 +28,8 @@ export interface EntryParser {
 
 const MONEY_TOKEN = /^(?:₹|rs\.?|inr)?\s*(\d{1,9})(?:\.(\d{1,2}))?\/?-?$/i;
 const PHONE_LIKE = /^\d{10,}$/;
-const CASH_WORDS = /(cash|nakad|paid|diya|diye|received|mila)/i;
-const PAYMENT_WORDS = /(payment|jama|received from|se mila)/i;
+const CASH_WORDS = /(cash|nakad|received|mila)/i;
+const PAYMENT_WORDS = /(payment|jama|received from|se mila|paid)/i;
 
 function toPaise(whole: string, fraction: string | undefined): number {
   const wholePart = Number.parseInt(whole, 10);
@@ -79,7 +79,15 @@ export const deterministicParser: EntryParser = {
     const max = options.maxAmountPaise ?? 100_000_000_000;
     if (amountPaise > max) return null;
 
-    const nameTokens = tokens.slice(0, amountIndex).filter((token) => !MONEY_TOKEN.test(token));
+    let nameTokens: string[];
+    const toIndex = tokens.findIndex((t, i) => i > amountIndex && /^to$/i.test(t));
+    if (toIndex >= 0) {
+      nameTokens = tokens.slice(toIndex + 1).filter((token) => !MONEY_TOKEN.test(token));
+    } else {
+      nameTokens = tokens
+        .slice(0, amountIndex)
+        .filter((token) => !MONEY_TOKEN.test(token) && !/^(ko|ne|ka|ki|ke|to|credit|paid)$/i.test(token));
+    }
     const customerName = cleanName(nameTokens.join(" "));
     if (customerName.length === 0 || customerName.length > 80) return null;
 
