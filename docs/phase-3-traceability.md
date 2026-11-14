@@ -44,10 +44,10 @@ named. "NOT COVERED" means no test exists yet.
 | C3 | — | — | NOT COVERED (payload shop_id override not tested) |
 | C4 | — | — | NOT COVERED (cross-shop message ID not tested) |
 | C5 | — | — | NOT COVERED (withTenant in routing not tested) |
-| C6 | `test/db/phase3.test.ts`; `test/db/text-slice.test.ts` | message 2 is not claimed while message 1 is PROCESSING; serializes same-seller inserts so an uncommitted earlier message blocks a later claim | PARTIAL (per-seller serialization and earlier-before-later processing are proven; the checklist's "10 concurrent messages" FIFO assertion is not implemented) |
-| C7 | `test/db/text-slice.test.ts` | a Confirm that arrives before its draft is retried, not acknowledged as DONE | PARTIAL (an early Confirm now retries instead of being acknowledged; the 5-second reorder hold and the polite dead-letter reply are not implemented) |
-| C8 | — | — | NOT COVERED (unsupported message types not tested) |
-| C9 | — | — | NOT COVERED (group messages not tested) |
+| C6 | `test/db/phase3.test.ts`; `test/db/text-slice.test.ts` | message 2 is not claimed while message 1 is PROCESSING; serializes same-seller inserts so an uncommitted earlier message blocks a later claim; processes ten concurrent same-seller messages in arrival order | COVERED (per-seller serialization, earlier-before-later processing, and a 10-message concurrent FIFO case are all proven) |
+| C7 | — | — | DROPPED (the 5-second reorder window is removed; same-seller serialization already covers ordering. A missing-draft Confirm is retried and, after the retry budget, receives the polite reply "I could not find that entry, please send it again." instead of a silent dead-letter) |
+| C8 | `test/db/text-slice.test.ts` | handles a sticker with an audit row and a polite reply, no crash | COVERED (sticker, location, contact, reaction and unknown types write an audit row and a polite reply, with no crash and no draft) |
+| C9 | `test/db/text-slice.test.ts` | ignores a group message: audit row, no reply | COVERED (group messages are audited as `GROUP_MESSAGE_IGNORED` and produce no reply or draft) |
 
 ## D. Media fetch
 
@@ -65,7 +65,7 @@ named. "NOT COVERED" means no test exists yet.
 
 | ID | Test file | Test name | Status |
 |---|---|---|---|
-| E1 | — | — | NOT COVERED (outbound via MessagingProvider not tested) |
+| E1 | `whatsapp/contract.test.ts` | simulator provider records outbound messages; contract: sendText returns a providerMessageId; Meta provider over a mocked HTTP Graph API | COVERED (outbound goes through `MessagingProvider` for both the simulator and the Meta provider) |
 | E2 | — | — | NOT COVERED (outbound persisted as OUTBOUND not tested) |
 | E3 | — | — | NOT COVERED (retry via outbox not tested) |
 | E4 | — | — | NOT COVERED (rate limits not tested) |
@@ -81,10 +81,10 @@ named. "NOT COVERED" means no test exists yet.
 
 | ID | Test file | Test name | Status |
 |---|---|---|---|
-| F1 | — | — | NOT COVERED (monotonic state not tested at app level) |
-| F2 | — | — | NOT COVERED (out-of-order not tested) |
-| F3 | — | — | NOT COVERED (duplicate idempotency not tested) |
-| F4 | — | — | NOT COVERED (failed delivery not tested) |
+| F1 | `test/db/text-slice.test.ts` | applies monotonic status updates and ignores out-of-order ones | COVERED (delivery statuses are recorded in `message_status_updates`; a lower-ranked status does not advance state or add an audit row) |
+| F2 | `test/db/text-slice.test.ts` | applies monotonic status updates and ignores out-of-order ones | COVERED (a DELIVERED arriving after READ is recorded but ignored) |
+| F3 | `test/db/text-slice.test.ts` | is idempotent on a duplicate status webhook | COVERED (identical status webhook twice yields one `message_status_updates` row and one audit row) |
+| F4 | `test/db/text-slice.test.ts` | records a failed delivery and schedules a retry | COVERED (FAILED sets `last_error`, `failed_at`, `next_attempt_at` and moves the outbox to FAILED/DEAD) |
 
 ## G. Transactional outbox
 
@@ -100,7 +100,7 @@ named. "NOT COVERED" means no test exists yet.
 
 | ID | Test file | Test name | Status |
 |---|---|---|---|
-| H1 | — | — | NOT COVERED (contract test not implemented) |
+| H1 | `whatsapp/contract.test.ts` | simulator provider records outbound messages; contract: sendText returns a providerMessageId; plus the Meta provider over a mocked HTTP Graph API | COVERED (the same suite runs against the simulator and the Meta provider; the Meta provider is exercised against a local HTTP server with bearer auth and a non-2xx failure case) |
 
 ## I. Cross-cutting
 
@@ -115,10 +115,10 @@ named. "NOT COVERED" means no test exists yet.
 
 | ID | Test file | Test name | Status |
 |---|---|---|---|
-| J1 | `test/db/phase3.test.ts`; `test/db/text-slice.test.ts` | message 2 is not claimed while message 1 is PROCESSING; serializes same-seller inserts so an uncommitted earlier message blocks a later claim | PARTIAL (two-message serialization proven; the 10-message concurrent FIFO case is not implemented) |
+| J1 | `test/db/phase3.test.ts`; `test/db/text-slice.test.ts` | message 2 is not claimed while message 1 is PROCESSING; serializes same-seller inserts so an uncommitted earlier message blocks a later claim; processes ten concurrent same-seller messages in arrival order | COVERED (per-seller serialization plus a 10-message concurrent FIFO case are proven) |
 | J2 | — | — | NOT COVERED (crash recovery not tested) |
 | J3 | — | — | NOT COVERED (Redis outage not tested) |
-| J4 | `test/db/text-slice.test.ts` | a Confirm that arrives before its draft is retried, not acknowledged as DONE | PARTIAL (early Confirm retries; no 5-second reorder window or polite dead-letter reply) |
+| J4 | — | — | DROPPED (the 5-second reorder window is removed; same-seller serialization covers ordering) |
 | J5 | — | — | NOT COVERED (dead-letter does not block queue not tested) |
 
 ## Slice hardening proofs
@@ -137,12 +137,30 @@ Branch `phase-3/text-slice-hardening` adds seven tests to `test/db/text-slice.te
 
 Full suite after hardening: **19 files, 108 tests, exit 0**; `tsc --noEmit` clean.
 
+## Remaining work buckets
+
+The rows below are the ones still open after Task A. They are grouped by when they must
+land, not by their original checklist letter.
+
+### Bucket 1 — needed before Meta staging
+
+A5, A6, A7, B1, B3, B4, B5, B6, B10, B11, B12, B13, J2
+
+### Bucket 2 — needed before public launch
+
+A4, B8, B9, B14, C1, C2, C3, C4, C5, D2, D6, D7, E2, E3, E4, E6, E7, E8, E9, G1, G2, G3, G4, G5, I1, J5
+
+### Bucket 3 — later
+
+B2, E10, E11, J3
+
 ## Summary
 
 - **Tests:** 19 files, 108 tests, all passing on embedded PostgreSQL 18.6.
-- **COVERED:** 13 rows (A1, A2, A3, B7, B10, D1, D3, D4, D5, E5, I2, I3, I4).
-- **PARTIAL:** 8 rows (A7, B1, B3, B12, C6, C7, J1, J4).
-- **NOT COVERED:** 46 rows.
+- **COVERED:** 23 rows (A1, A2, A3, B7, B10, C6, C8, C9, D1, D3, D4, D5, E1, E5, F1, F2, F3, F4, H1, I2, I3, I4, J1).
+- **PARTIAL:** 4 rows (A7, B1, B3, B12).
+- **DROPPED:** 2 rows (C7, J4) — the 5-second reorder window is removed.
+- **NOT COVERED:** 38 rows.
 - **New in this hardening branch:** 7 tests covering 5 behaviours, taking
   `test/db/text-slice.test.ts` from 7 to 14 tests and the suite from 101 to 108.
 
@@ -172,8 +190,9 @@ deliberately outside this slice:
 - `whatsapp/media.ts` + test (SSRF, size, type, magic bytes)
 - `whatsapp/inbox.ts` (claim, markDone, markFailed, reclaimExpiredLeases)
 - `whatsapp/outbound.ts` (enqueue, claim, markSent, markUnknown, markFailed, reconcileStatus)
-- `whatsapp/statusWebhook.ts` (monotonic status updates)
+- `whatsapp/statusWebhook.ts` (monotonic status updates, shop resolution via platform index)
 - `whatsapp/scheduler.ts` (sweeper + outbox processor, in-process interval)
+- `integrations/messaging/meta.ts` (Meta Cloud API provider over HTTPS)
 - `whatsapp/webhookRoutes.ts` (GET verification + POST webhook)
 - `whatsapp/webhookController.ts` (per-message transaction, seller advisory lock, injectable
   `WebhookTransactionRunner`)
@@ -183,8 +202,9 @@ deliberately outside this slice:
 - `config/db.ts` (UTF8 startup guard, `withTransactionOnPool`)
 - `server.ts` (logs the database encoding)
 - `test/globalSetup.ts`, `test/helpers/postgres.ts` (bootstrap URI for probe databases)
-- `test/db/text-slice.test.ts` (14 tests: slice + hardening)
-- `migrations/0009_phase3_webhook.sql`, `migrations/0010_text_slice.sql`
+- `test/db/text-slice.test.ts` (23 tests: slice + hardening + Task A)
+- `whatsapp/contract.test.ts` (12 tests: simulator + Meta over a mocked Graph API)
+- `migrations/0009_phase3_webhook.sql`, `migrations/0010_text_slice.sql`, `migrations/0012_status_webhook.sql`
 - `docs/meta-staging-checklist.md`
 
 ### CI workflow

@@ -50,6 +50,7 @@ const envSchema = z
     WHATSAPP_APP_SECRET: z.string().optional(),
     WHATSAPP_ACCESS_TOKEN: z.string().optional(),
     WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+    WHATSAPP_GRAPH_BASE_URL: z.string().url().default("https://graph.facebook.com/v21.0"),
 
     LLM_PROVIDER: z.enum(["stub", "openai"]).default("stub"),
     LLM_API_KEY: z.string().optional(),
@@ -146,6 +147,22 @@ const envSchema = z
         path: ["WHATSAPP_APP_SECRET"],
         message:
           "production requires WHATSAPP_APP_SECRET, WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID",
+      });
+    }
+    try {
+      const graphUrl = new URL(value.WHATSAPP_GRAPH_BASE_URL);
+      if (graphUrl.protocol !== "https:" || graphUrl.hostname !== "graph.facebook.com") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["WHATSAPP_GRAPH_BASE_URL"],
+          message: "production requires WHATSAPP_GRAPH_BASE_URL to be https://graph.facebook.com/...",
+        });
+      }
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["WHATSAPP_GRAPH_BASE_URL"],
+        message: "WHATSAPP_GRAPH_BASE_URL must be a valid URL",
       });
     }
   });

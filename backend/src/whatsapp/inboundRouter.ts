@@ -168,6 +168,47 @@ async function handleInteractive(message: InboxMessage, deps: InboundDeps): Prom
   }
 }
 
+async function handleUnsupported(message: InboxMessage, deps: InboundDeps): Promise<void> {
+  const isGroup = message.messageType === "GROUP";
+  const sellerPhone = senderPhone(message.body);
+
+  await withTenant(
+    { shopId: message.shopId, actorType: "WORKER", actorId: "inbound" },
+    async (db) => {
+      await db.execute(
+        sql`INSERT INTO app.audit_logs
+              (shop_id, actor_type, actor_id, action, entity_type, entity_id, after)
+            VALUES
+              (${message.shopId}, 'SYSTEM', 'inbound',
+               ${isGroup ? "GROUP_MESSAGE_IGNORED" : "UNSUPPORTED_MESSAGE_TYPE"},
+               'inbox_message', ${message.id},
+               ${JSON.stringify({ messageType: message.messageType })}::jsonb)`,
+      );
+
+      // Groups have no individual seller to reply to; ignore them.
+      if (isGroup || !sellerPhone) return;
+
+      const sellerBidx = phoneBlindIndex(sellerPhone, deps.blindIndexKey);
+      const sellerPhoneEnc = encryptField(sellerPhone, deps.keyRef, 1, {
+        shopId: message.shopId,
+        table: "outbox_events",
+        column: "recipient_phone_enc",
+      });
+      await enqueueOutboundTx(db, {
+        shopId: message.shopId,
+        recipientPhoneBidx: sellerBidx,
+        recipientPhoneEnc: sellerPhoneEnc,
+        keyVersion: 1,
+        messageType: "TEXT",
+        payload: {
+          to: sellerPhone,
+          text: "I can only process text messages right now. Please resend this as text.",
+        },
+      });
+    },
+  );
+}
+
 async function handleMessage(message: InboxMessage, deps: InboundDeps): Promise<void> {
   switch (message.messageType) {
     case "TEXT":
@@ -177,7 +218,8 @@ async function handleMessage(message: InboxMessage, deps: InboundDeps): Promise<
       await handleInteractive(message, deps);
       return;
     default:
-      throw new Error(`UNSUPPORTED_MESSAGE_TYPE: ${message.messageType}`);
+      await handleUnsupported(message, deps);
+      return;
   }
 }
 
@@ -200,6 +242,30 @@ async function notifySellerOfDeadLetter(message: InboxMessage, deps: InboundDeps
         text:
           "We could not process your last message after 3 attempts. Please resend it or " +
           "contact support.",
+      },
+    });
+  } catch {
+    // The alert row is the durable record; a failed notification must not hide the DEAD state.
+  }
+}
+
+async function notifySellerOfMissingDraft(message: InboxMessage, deps: InboundDeps): Promise<void> {
+  const sellerPhone = senderPhone(message.body);
+  if (!sellerPhone) return;
+  try {
+    await enqueueOutbound({
+      shopId: message.shopId,
+      recipientPhoneBidx: phoneBlindIndex(sellerPhone, deps.blindIndexKey),
+      recipientPhoneEnc: encryptField(sellerPhone, deps.keyRef, 1, {
+        shopId: message.shopId,
+        table: "outbox_events",
+        column: "recipient_phone_enc",
+      }),
+      keyVersion: 1,
+      messageType: "TEXT",
+      payload: {
+        to: sellerPhone,
+        text: "I could not find that entry, please send it again.",
       },
     });
   } catch {
@@ -236,7 +302,11 @@ export async function processNextInboxMessageForShop(
     const outcome = await markFailed(claimed.id, reason);
     if (outcome === "DEAD") {
       await raiseInboxDeadLetter(shopId, claimed.id, reason);
-      await notifySellerOfDeadLetter(message, deps);
+      if (reason.startsWith("DRAFT_NOT_FOUND")) {
+        await notifySellerOfMissingDraft(message, deps);
+      } else {
+        await notifySellerOfDeadLetter(message, deps);
+      }
     }
     return { processed: true, outcome, messageId: claimed.id, error: reason };
   }

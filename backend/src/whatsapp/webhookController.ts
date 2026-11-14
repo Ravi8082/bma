@@ -16,6 +16,7 @@ import { logger } from "../config/logger";
 import { normalisePhone } from "../crypto/phone";
 import { phoneBlindIndex } from "../crypto/blindIndex";
 import { sellerAdvisoryKey } from "./advisory";
+import { handleStatusWebhook, resolveShopByProviderMessageId, type StatusKind } from "./statusWebhook";
 
 /**
  * Transaction seam. Production uses `withTransaction`; tests inject a gated or failing
@@ -39,7 +40,13 @@ interface WhatsAppWebhookPayload {
     changes?: Array<{
       value?: {
         messages?: WhatsAppMessage[];
-        statuses?: Array<{ id?: string; status?: string }>;
+        statuses?: Array<{
+          id?: string;
+          status?: string;
+          timestamp?: string;
+          recipient_id?: string;
+          errors?: Array<{ code?: number; title?: string; message?: string }>;
+        }>;
       };
     }>;
   }>;
@@ -104,6 +111,56 @@ function extractMessages(payload: WhatsAppWebhookPayload): Array<{
   return messages;
 }
 
+function mapStatus(raw: string | undefined): StatusKind | null {
+  switch ((raw ?? "").toLowerCase()) {
+    case "sent":
+      return "SENT";
+    case "delivered":
+      return "DELIVERED";
+    case "read":
+      return "READ";
+    case "failed":
+      return "FAILED";
+    default:
+      return null;
+  }
+}
+
+function extractStatuses(payload: WhatsAppWebhookPayload): Array<{
+  providerMessageId: string;
+  status: StatusKind;
+  occurredAt: Date;
+  errorMessage: string | undefined;
+}> {
+  const statuses: Array<{
+    providerMessageId: string;
+    status: StatusKind;
+    occurredAt: Date;
+    errorMessage: string | undefined;
+  }> = [];
+  for (const entry of payload.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      for (const status of change.value?.statuses ?? []) {
+        if (!status.id) continue;
+        const mapped = mapStatus(status.status);
+        if (!mapped) continue;
+        const occurredAt = status.timestamp
+          ? new Date(Number(status.timestamp) * 1000)
+          : new Date();
+        const errorMessage =
+          status.errors?.[0]?.title ?? status.errors?.[0]?.message ?? undefined;
+        statuses.push({
+          providerMessageId: status.id,
+          status: mapped,
+          occurredAt: Number.isNaN(occurredAt.getTime()) ? new Date() : occurredAt,
+          errorMessage,
+        });
+      }
+    }
+  }
+  return statuses;
+}
+
 export async function handleWebhookPost(
   req: Request,
   res: Response,
@@ -124,7 +181,8 @@ export async function handleWebhookPost(
   }
 
   const messages = extractMessages(payload);
-  if (messages.length === 0) {
+  const statuses = extractStatuses(payload);
+  if (messages.length === 0 && statuses.length === 0) {
     // Status callbacks and other non-message changes are acknowledged without a write.
     res.status(200).json({ ok: true });
     return;
@@ -186,6 +244,18 @@ export async function handleWebhookPost(
           ],
         );
       });
+    }
+
+    for (const status of statuses) {
+      const shopId = await resolveShopByProviderMessageId(status.providerMessageId);
+      if (!shopId) continue;
+      await handleStatusWebhook(
+        shopId,
+        status.providerMessageId,
+        status.status,
+        status.occurredAt,
+        status.errorMessage,
+      );
     }
   } catch (error) {
     logger.error({ err: error }, "webhook persistence failed");

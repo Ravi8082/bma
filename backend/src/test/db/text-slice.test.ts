@@ -15,6 +15,7 @@ import { claimNextForShop, reclaimExpiredLeases } from "../../whatsapp/inbox";
 import { processNextInboxMessageForShop } from "../../whatsapp/inboundRouter";
 import { processNextOutboundForShop } from "../../whatsapp/outboundSender";
 import { deterministicParser } from "../../whatsapp/parser";
+import { enqueueOutbound, markSent } from "../../whatsapp/outbound";
 import {
   confirmDraft,
   EntryAlreadyReversedError,
@@ -829,5 +830,266 @@ describe("hardening: startup encoding guard", () => {
       await bootstrap.query(`DROP DATABASE IF EXISTS ${database}`);
       await bootstrap.end();
     }
+  });
+});
+
+function buildTypePayload(input: {
+  waId: string;
+  from: string;
+  type: string;
+  extra?: Record<string, unknown>;
+}): unknown {
+  const message: Record<string, unknown> = {
+    id: input.waId,
+    from: input.from.replace(/^\\+/, ""),
+    timestamp: String(Math.floor(Date.now() / 1000)),
+    type: input.type,
+    ...(input.extra ?? {}),
+  };
+  return {
+    object: "whatsapp_business_account",
+    entry: [
+      {
+        id: "1",
+        changes: [{ field: "messages", value: { messaging_product: "whatsapp", messages: [message] } }],
+      },
+    ],
+  };
+}
+
+function buildStatusPayload(
+  statuses: Array<{ id: string; status: string; timestamp?: string; errors?: Array<{ title?: string; message?: string }> }>,
+): unknown {
+  return {
+    object: "whatsapp_business_account",
+    entry: [
+      {
+        id: "1",
+        changes: [{ field: "messages", value: { messaging_product: "whatsapp", statuses } }],
+      },
+    ],
+  };
+}
+
+async function auditCount(shopId: string, action: string): Promise<number> {
+  const rows = await withTenant({ shopId, actorType: "SYSTEM", actorId: "test" }, async (db) =>
+    db.query<{ count: string }>(
+      sql`SELECT COUNT(*) AS count FROM app.audit_logs WHERE shop_id = ${shopId} AND action = ${action}`,
+    ),
+  );
+  return Number(rows[0]?.count ?? "0");
+}
+
+async function outboxState(shopId: string, providerMessageId: string): Promise<string | null> {
+  const rows = await withTenant({ shopId, actorType: "SYSTEM", actorId: "test" }, async (db) =>
+    db.query<{ state: string }>(
+      sql`SELECT state FROM app.outbox_events WHERE shop_id = ${shopId} AND provider_message_id = ${providerMessageId}`,
+    ),
+  );
+  return rows[0]?.state ?? null;
+}
+
+async function seedOutbox(shopId: string, phone: string, providerMessageId: string): Promise<void> {
+  const bidx = phoneBlindIndex(phone, env.PHONE_BLIND_INDEX_KEY);
+  const enc = encryptField(phone, env.FIELD_ENCRYPTION_KEY_REF, 1, {
+    shopId,
+    table: "outbox_events",
+    column: "recipient_phone_enc",
+  });
+  const id = await enqueueOutbound({
+    shopId,
+    recipientPhoneBidx: bidx,
+    recipientPhoneEnc: enc,
+    keyVersion: 1,
+    messageType: "TEXT",
+    payload: { to: phone, text: "seed" },
+  });
+  await markSent(shopId, id, providerMessageId);
+}
+
+describe("task A: status webhooks", () => {
+  it("applies monotonic status updates and ignores out-of-order ones", async () => {
+    const phone = uniqueSellerPhone();
+    const { shopId } = await seedSeller(phone);
+    const pid = `wamid.status.${randomUUID()}`;
+    await seedOutbox(shopId, phone, pid);
+
+    const delivered = await postWebhook(buildStatusPayload([{ id: pid, status: "delivered", timestamp: "1700000000" }]));
+    expect(delivered.status).toBe(200);
+    expect(await outboxState(shopId, pid)).toBe("SENT");
+
+    const read = await postWebhook(buildStatusPayload([{ id: pid, status: "read", timestamp: "1700000001" }]));
+    expect(read.status).toBe(200);
+    expect(await outboxState(shopId, pid)).toBe("SENT");
+
+    const auditsBefore = await auditCount(shopId, "MESSAGE_STATUS_UPDATE");
+    const lateDelivered = await postWebhook(buildStatusPayload([{ id: pid, status: "delivered", timestamp: "1700000002" }]));
+    expect(lateDelivered.status).toBe(200);
+    expect(await outboxState(shopId, pid)).toBe("SENT");
+    // Out-of-order delivery is recorded but does not advance state and adds no audit row.
+    expect(await auditCount(shopId, "MESSAGE_STATUS_UPDATE")).toBe(auditsBefore);
+  });
+
+  it("is idempotent on a duplicate status webhook", async () => {
+    const phone = uniqueSellerPhone();
+    const { shopId } = await seedSeller(phone);
+    const pid = `wamid.status.${randomUUID()}`;
+    await seedOutbox(shopId, phone, pid);
+
+    const first = await postWebhook(buildStatusPayload([{ id: pid, status: "delivered", timestamp: "1700000010" }]));
+    const second = await postWebhook(buildStatusPayload([{ id: pid, status: "delivered", timestamp: "1700000010" }]));
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(await outboxState(shopId, pid)).toBe("SENT");
+
+    const rows = await withTenant({ shopId, actorType: "SYSTEM", actorId: "test" }, async (db) =>
+      db.query<{ count: string }>(
+        sql`SELECT COUNT(*) AS count FROM app.message_status_updates WHERE shop_id = ${shopId} AND provider_message_id = ${pid}`,
+      ),
+    );
+    expect(Number(rows[0]?.count ?? "0")).toBe(1);
+
+    const audits = await auditCount(shopId, "MESSAGE_STATUS_UPDATE");
+    expect(audits).toBe(1);
+  });
+
+  it("records a failed delivery and schedules a retry", async () => {
+    const phone = uniqueSellerPhone();
+    const { shopId } = await seedSeller(phone);
+    const pid = `wamid.status.${randomUUID()}`;
+    await seedOutbox(shopId, phone, pid);
+
+    const failed = await postWebhook(
+      buildStatusPayload([{ id: pid, status: "failed", timestamp: "1700000020", errors: [{ title: "Recipient blocked" }] }]),
+    );
+    expect(failed.status).toBe(200);
+    expect(await outboxState(shopId, pid)).toBe("FAILED");
+
+    const rows = await withTenant({ shopId, actorType: "SYSTEM", actorId: "test" }, async (db) =>
+      db.query<{ last_error: string | null; next_attempt_at: Date | null }>(
+        sql`SELECT last_error, next_attempt_at FROM app.outbox_events WHERE shop_id = ${shopId} AND provider_message_id = ${pid}`,
+      ),
+    );
+    expect(rows[0]?.last_error).toContain("Recipient blocked");
+    expect(rows[0]?.next_attempt_at).not.toBeNull();
+  });
+
+  it("ignores a status for an unknown provider message id", async () => {
+    const phone = uniqueSellerPhone();
+    const { shopId } = await seedSeller(phone);
+    await seedOutbox(shopId, phone, "wamid.status.4");
+
+    const response = await postWebhook(buildStatusPayload([{ id: "wamid.does-not-exist", status: "read", timestamp: "1700000030" }]));
+    expect(response.status).toBe(200);
+    expect(await outboxState(shopId, "wamid.status.4")).toBe("SENT");
+  });
+
+  it("returns 200 with no writes when there are no messages or statuses", async () => {
+    const payload = { object: "whatsapp_business_account", entry: [{ id: "1", changes: [{ field: "messages", value: {} }] }] };
+    const response = await postWebhook(payload);
+    expect(response.status).toBe(200);
+  });
+});
+
+describe("task A: unsupported message types", () => {
+  it("handles a sticker with an audit row and a polite reply, no crash", async () => {
+    const phone = uniqueSellerPhone();
+    const { shopId } = await seedSeller(phone);
+    const waId = `wamid.${randomUUID()}`;
+
+    expect(
+      (await postWebhook(buildTypePayload({ waId, from: phone, type: "sticker", extra: { sticker: { id: "1", mime_type: "image/webp" } } }))).status,
+    ).toBe(200);
+    expect((await processNextInboxMessageForShop(shopId, deps)).outcome).toBe("DONE");
+    expect(await drafts(shopId)).toHaveLength(0);
+    expect(await auditCount(shopId, "UNSUPPORTED_MESSAGE_TYPE")).toBe(1);
+
+    const notification = await processNextOutboundForShop(shopId, deps);
+    expect(notification.state).toBe("SENT");
+    const messages = store.list({ to: phone });
+    expect(messages.some((m) => m.body.includes("I can only process text messages"))).toBe(true);
+  });
+
+  it("ignores a group message: audit row, no reply", async () => {
+    const phone = uniqueSellerPhone();
+    const { shopId } = await seedSeller(phone);
+    const waId = `wamid.${randomUUID()}`;
+
+    expect(
+      (await postWebhook(buildTypePayload({ waId, from: phone, type: "group", extra: { group_id: "g1" } }))).status,
+    ).toBe(200);
+    expect((await processNextInboxMessageForShop(shopId, deps)).outcome).toBe("DONE");
+    expect(await drafts(shopId)).toHaveLength(0);
+    expect(await auditCount(shopId, "GROUP_MESSAGE_IGNORED")).toBe(1);
+
+    const notification = await processNextOutboundForShop(shopId, deps);
+    expect(notification.state).toBe("EMPTY");
+    expect(store.list({ to: phone })).toHaveLength(0);
+  });
+});
+
+describe("task A: missing draft on Confirm", () => {
+  it("sends a polite reply after three failed retries", async () => {
+    const phone = uniqueSellerPhone();
+    const { shopId } = await seedSeller(phone);
+    const missingDraftId = randomUUID();
+    const waId = `wamid.${randomUUID()}`;
+
+    expect(
+      (
+        await postWebhook(
+          buildPayload({
+            waId,
+            from: phone,
+            type: "interactive",
+            interactiveId: `confirm:${missingDraftId}`,
+          }),
+        )
+      ).status,
+    ).toBe(200);
+
+    let last: { outcome: string; error?: string } | null = null;
+    for (let i = 0; i < 3; i++) {
+      last = await processNextInboxMessageForShop(shopId, deps);
+      if (i < 2) await expireFailedLeases(shopId);
+    }
+    expect(last?.outcome).toBe("DEAD");
+    expect(last?.error).toContain("DRAFT_NOT_FOUND");
+
+    const row = await inboxRow(shopId, waId);
+    expect(row?.status).toBe("DEAD");
+
+    const notification = await processNextOutboundForShop(shopId, deps);
+    expect(notification.state).toBe("SENT");
+    const messages = store.list({ to: phone });
+    expect(messages.some((m) => m.body.includes("I could not find that entry, please send it again."))).toBe(true);
+    expect(messages.some((m) => m.body.includes("could not process"))).toBe(false);
+    expect(await ledger(shopId)).toHaveLength(0);
+  });
+});
+
+describe("task A: ten-message FIFO", () => {
+  it("processes ten concurrent same-seller messages in arrival order", async () => {
+    const phone = uniqueSellerPhone();
+    const { shopId } = await seedSeller(phone);
+    const waIds = Array.from({ length: 10 }, () => `wamid.${randomUUID()}`);
+
+    const responses = await Promise.all(
+      waIds.map((waId) =>
+        postWebhook(buildPayload({ waId, from: phone, text: "Ramesh 300 udhaar" })),
+      ),
+    );
+    for (const response of responses) expect(response.status).toBe(200);
+
+    const ordered = await inboxRows(shopId);
+    expect(ordered).toHaveLength(10);
+
+    const processed: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const result = await processNextInboxMessageForShop(shopId, deps);
+      expect(result.outcome).toBe("DONE");
+      if (result.messageId) processed.push(result.messageId);
+    }
+    expect(processed).toEqual(ordered.map((row) => row.id));
   });
 });

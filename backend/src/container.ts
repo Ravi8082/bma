@@ -10,6 +10,14 @@ import { TenantScopedProcessorRegistry } from "./jobs/processors/registry";
  * buying testability (tests construct their own instances).
  */
 export const simulatorStore = new SimulatorStore();
-export const messaging = createMessagingProvider(env.MESSAGING_PROVIDER, { simulatorStore });
+const metaConfig = {
+  ...(env.WHATSAPP_ACCESS_TOKEN ? { accessToken: env.WHATSAPP_ACCESS_TOKEN } : {}),
+  ...(env.WHATSAPP_PHONE_NUMBER_ID ? { phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID } : {}),
+  baseUrl: env.WHATSAPP_GRAPH_BASE_URL,
+};
+export const messaging = createMessagingProvider(env.MESSAGING_PROVIDER, {
+  simulatorStore,
+  meta: metaConfig,
+});
 export const queue = new InlineQueue();
 export const processors = new TenantScopedProcessorRegistry();

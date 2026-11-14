@@ -141,6 +141,11 @@ export async function markSent(
                  next_attempt_at = NULL, updated_at = now()
            WHERE id = ${id} AND shop_id = ${shopId}`,
     );
+    await db.execute(
+      sql`INSERT INTO app.provider_message_index (provider_message_id, shop_id, outbox_id)
+          VALUES (${providerMessageId}, ${shopId}, ${id})
+          ON CONFLICT (provider_message_id) DO NOTHING`,
+    );
   });
 }
 

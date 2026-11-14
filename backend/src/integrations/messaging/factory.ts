@@ -2,9 +2,16 @@ import type { AppEnv } from "../../config/env";
 import type { MessagingProvider } from "./types";
 import { SimulatorMessagingProvider } from "./simulator";
 import type { SimulatorStore } from "../../simulator/store";
+import { MetaCloudMessagingProvider } from "./meta";
 
 export interface MessagingProviderDeps {
   simulatorStore: SimulatorStore;
+  meta?: {
+    accessToken?: string;
+    phoneNumberId?: string;
+    baseUrl?: string;
+    fetchImpl?: typeof fetch;
+  };
 }
 
 export class ProviderNotImplementedError extends Error {
@@ -16,6 +23,15 @@ export class ProviderNotImplementedError extends Error {
   }
 }
 
+export class MetaConfigurationError extends Error {
+  readonly code = "META_CONFIGURATION_ERROR";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "MetaConfigurationError";
+  }
+}
+
 export function createMessagingProvider(
   kind: AppEnv["MESSAGING_PROVIDER"],
   deps: MessagingProviderDeps,
@@ -23,9 +39,20 @@ export function createMessagingProvider(
   switch (kind) {
     case "simulator":
       return new SimulatorMessagingProvider(deps.simulatorStore);
-    case "meta":
-      // Phase 3 replaces this with MetaCloudMessagingProvider. Until then the
-      // process refuses to start rather than pretending to send messages.
-      throw new ProviderNotImplementedError("meta", "Phase 3");
+    case "meta": {
+      const accessToken = deps.meta?.accessToken ?? undefined;
+      const phoneNumberId = deps.meta?.phoneNumberId ?? undefined;
+      if (!accessToken || !phoneNumberId) {
+        throw new MetaConfigurationError(
+          "meta provider requires an access token and phone number id",
+        );
+      }
+      return new MetaCloudMessagingProvider({
+        accessToken,
+        phoneNumberId,
+        ...(deps.meta?.baseUrl ? { baseUrl: deps.meta.baseUrl } : {}),
+        ...(deps.meta?.fetchImpl ? { fetchImpl: deps.meta.fetchImpl } : {}),
+      });
+    }
   }
 }

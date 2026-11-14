@@ -70,7 +70,7 @@ and `docs/13-rls-and-roles.md` (§5.3).
 | C4 | A payload whose `wa_message_id` belongs to shop A cannot be routed into shop B | Cross-shop message ID → rejected, `security_events` row |
 | C5 | Routing runs inside `withTenant()` for the resolved shop | The message processor receives a tenant-scoped DB handle |
 | C6 | **Per-seller ordered processing** | Queue key is `(shop_id, seller_phone_bidx)`; concurrency = 1; "Confirm" cannot run before its "Draft" is processed; a test with 10 concurrent messages verifies FIFO order |
-| C7 | **Ordering by WhatsApp timestamp** | Messages are ordered by `received_at` (WhatsApp timestamp); a "Confirm" arriving before its "Draft" is held for up to 5 seconds (reorder window) then processed; if the draft never arrives, the confirm is dead-lettered with a polite reply |
+| C7 | **Ordering by WhatsApp timestamp** | DROPPED: the 5-second reorder window is removed. Same-seller serialization (C6) already covers ordering. A "Confirm" arriving before its "Draft" is retried; after the retry budget it receives the polite reply "I could not find that entry, please send it again." (no silent dead-letter) |
 | C8 | **Unsupported message types handled safely** | Sticker, location, reaction, contact, group message → polite reply ("I can only process text, voice and photos"), no crash, no DB write beyond the message row, audit row written |
 | C9 | **Group messages ignored** | A message from a group (not a 1:1 chat) → ignored with a log entry; no processing, no reply |
 
@@ -169,7 +169,7 @@ and `docs/13-rls-and-roles.md` (§5.3).
 | J1 | Per-seller ordering via advisory lock | 10 concurrent messages from the same seller → processed one at a time in `received_at` order |
 | J2 | Crash recovery | Kill the worker mid-processing → the sweeper reclaims the message within 30 seconds; it is processed exactly once |
 | J3 | Redis outage does not lose messages | With Redis stopped, messages are persisted and processed by the sweeper when Redis returns |
-| J4 | Reorder window | A "Confirm" arriving 2 seconds before its "Draft" is held; when the draft arrives, both are processed in order |
+| J4 | Reorder window | DROPPED: replaced by same-seller serialization (J1). A missing-draft Confirm is retried and then answered politely |
 | J5 | Dead-letter does not block the queue | A message that fails 3 times is dead-lettered; the next message in the queue is processed immediately |
 
 ---
