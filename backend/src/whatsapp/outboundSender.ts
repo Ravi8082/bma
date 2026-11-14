@@ -8,6 +8,8 @@ import { decryptField } from "../crypto/fieldEncryption";
 import type { MessagingProvider } from "../integrations/messaging/types";
 import { raiseOutboxDeadLetter } from "./alerts";
 import { claimNextOutbound, markFailed, markSent, type OutboundState } from "./outbound";
+import { queryWithoutTenant, withTenant } from "../db/tenant";
+import { sql } from "../db/sql";
 
 export interface OutboundDeps {
   messaging: MessagingProvider;
@@ -37,12 +39,65 @@ function parsePayload(value: Record<string, unknown>): OutboundPayload {
   };
 }
 
+async function serviceWindowOpen(shopId: string, recipientBidx: Buffer): Promise<boolean> {
+  const rows = await queryWithoutTenant<{ count: string }>(
+    sql`SELECT COUNT(*) AS count FROM app.inbox_messages
+         WHERE shop_id = ${shopId}
+           AND from_phone_bidx = ${recipientBidx}
+           AND received_at > now() - interval '24 hours'`,
+  );
+  return Number(rows[0]?.count ?? "0") > 0;
+}
+
+async function shopTemplate(shopId: string): Promise<string | null> {
+  const rows = await withTenant({ shopId, actorType: "SYSTEM", actorId: "outbound" }, async (db) => {
+    return db.query<{ template_set: string | null }>(
+      sql`SELECT template_set FROM app.shop_settings WHERE shop_id = ${shopId}`,
+    );
+  });
+  return rows[0]?.template_set ?? null;
+}
+
 export async function processNextOutboundForShop(
   shopId: string,
   deps: OutboundDeps,
 ): Promise<OutboundResult> {
   const message = await claimNextOutbound(shopId);
   if (!message) return { processed: false, state: "EMPTY" };
+
+  // 24-hour service window: if closed, prefer an approved utility template; otherwise
+  // re-queue (never drop) until the recipient messages again.
+  const windowOpen = await serviceWindowOpen(shopId, message.recipientPhoneBidx);
+  if (!windowOpen) {
+    const template = await shopTemplate(shopId);
+    if (template) {
+      try {
+        if (!message.recipientPhoneEnc) throw new Error("MISSING_RECIPIENT_PHONE");
+        const to = decryptField(message.recipientPhoneEnc, deps.keyRef, {
+          shopId, table: "outbox_events", column: "recipient_phone_enc",
+        });
+        const payload = parsePayload(message.payload);
+        const body = payload.body ?? payload.text ?? "";
+        const result = await deps.messaging.sendTemplate({ to, templateName: template, language: "en", bodyParameters: [body] });
+        await markSent(shopId, message.id, result.providerMessageId);
+        return { processed: true, state: "SENT", outboxId: message.id };
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        const state = await markFailed(shopId, message.id, reason);
+        if (state === "DEAD") await raiseOutboxDeadLetter(shopId, message.id, reason);
+        return { processed: true, state, outboxId: message.id };
+      }
+    }
+    // No template: re-queue without dropping.
+    await withTenant({ shopId, actorType: "SYSTEM", actorId: "outbound" }, async (db) => {
+      await db.execute(
+        sql`UPDATE app.outbox_events
+               SET state = 'QUEUED', next_attempt_at = NULL, updated_at = now()
+             WHERE id = ${message.id} AND shop_id = ${shopId}`,
+      );
+    });
+    return { processed: true, state: "QUEUED", outboxId: message.id };
+  }
 
   try {
     if (!message.recipientPhoneEnc) throw new Error("MISSING_RECIPIENT_PHONE");

@@ -13,6 +13,7 @@ import { withTenant, type TenantDb } from "../db/tenant";
 import { sql } from "../db/sql";
 import { raiseInboxDeadLetter } from "./alerts";
 import { cancelDraft, confirmDraft, formatPaise } from "./confirmation";
+import { needsReconsent, getLatestConsentVersion } from "../modules/onboarding/consent";
 import { findOrCreateCustomer as findOrCreateCustomerModule } from "../modules/customers/customers";
 import { claimNextForShop, getInboxMessage, markDone, markFailed, type InboxMessage } from "./inbox";
 import { enqueueOutbound, enqueueOutboundTx } from "./outbound";
@@ -277,6 +278,30 @@ async function notifySellerOfMissingDraft(message: InboxMessage, deps: InboundDe
   }
 }
 
+async function notifySellerOfConsent(message: InboxMessage, deps: InboundDeps): Promise<void> {
+  const sellerPhone = senderPhone(message.body);
+  if (!sellerPhone) return;
+  try {
+    await enqueueOutbound({
+      shopId: message.shopId,
+      recipientPhoneBidx: phoneBlindIndex(sellerPhone, deps.blindIndexKey),
+      recipientPhoneEnc: encryptField(sellerPhone, deps.keyRef, 1, {
+        shopId: message.shopId,
+        table: "outbox_events",
+        column: "recipient_phone_enc",
+      }),
+      keyVersion: 1,
+      messageType: "TEXT",
+      payload: {
+        to: sellerPhone,
+        text: "Please re-accept the updated privacy terms to continue. Reply YES to consent.",
+      },
+    });
+  } catch {
+    // best effort
+  }
+}
+
 /** Claim and process the oldest unfinished message for one seller. */
 export async function processNextInboxMessageForShop(
   shopId: string,
@@ -295,6 +320,17 @@ export async function processNextInboxMessageForShop(
       messageId: claimed.id,
       error: "message disappeared after claim",
     };
+  }
+
+  // Consent gate: first thing. A shop whose consent version is not privacy-v2 must
+  // re-consent before any entry processing.
+  const version = await getLatestConsentVersion(message.shopId);
+  // Only block when a consent record exists with an outdated version. A shop with no
+  // consent record yet is handled by onboarding, not by this gate.
+  if (version !== null && needsReconsent(version)) {
+    await notifySellerOfConsent(message, deps);
+    await markDone(claimed.id);
+    return { processed: true, outcome: "DONE", messageId: claimed.id };
   }
 
   try {
