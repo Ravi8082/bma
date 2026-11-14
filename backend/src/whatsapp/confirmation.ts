@@ -215,13 +215,22 @@ export async function cancelDraft(
 
 export interface ReverseResult {
   reversalEntryId: string;
-  alreadyReversed: boolean;
+}
+
+/** A second undo of the same entry is rejected, not silently treated as success. */
+export class EntryAlreadyReversedError extends Error {
+  readonly code = "ENTRY_ALREADY_REVERSED";
+
+  constructor(entryId: string) {
+    super(`ledger entry ${entryId} is already reversed`);
+    this.name = "EntryAlreadyReversedError";
+  }
 }
 
 /**
  * Undo a posted ledger entry by appending a REVERSAL row. The original row is untouched.
- * The partial unique index allows exactly one reversal per entry, so a retry returns the
- * existing reversal instead of writing a second one.
+ * The partial unique index allows exactly one reversal per entry, so a second undo is
+ * rejected with `EntryAlreadyReversedError` instead of writing another reversal.
  */
 export async function reverseLedgerEntry(
   shopId: string,
@@ -241,13 +250,15 @@ export async function reverseLedgerEntry(
       sql`SELECT id FROM app.ledger_entries
            WHERE shop_id = ${shopId} AND reverses_entry_id = ${entryId}`,
     );
-    if (existing) return { reversalEntryId: existing.id, alreadyReversed: true };
+    if (existing) throw new EntryAlreadyReversedError(entryId);
 
     const reversalId = randomUUID();
     const opposite = original.direction === "DEBIT" ? "CREDIT" : "DEBIT";
     const amount = Number.parseInt(original.amount_paise, 10);
 
-    await db.execute(
+    // ON CONFLICT closes the concurrent-double-undo window: the loser of the unique-index
+    // race gets no row back and is rejected below, rather than surfacing a raw 23505.
+    const inserted = await db.query<{ id: string }>(
       sql`INSERT INTO app.ledger_entries
             (id, shop_id, customer_id, posting_id, entry_seq, entry_type, direction,
              amount_paise, occurred_at, description, source, source_id, idempotency_key,
@@ -255,8 +266,11 @@ export async function reverseLedgerEntry(
           VALUES
             (${reversalId}, ${shopId}, ${original.customer_id}, ${randomUUID()}, 1, 'REVERSAL',
              ${opposite}, ${original.amount_paise}, now(), ${reason.slice(0, 500)}, 'WHATSAPP',
-             ${original.id}, ${`reversal:${entryId}`}, 'seller', ${entryId})`,
+             ${original.id}, ${`reversal:${entryId}`}, 'seller', ${entryId})
+          ON CONFLICT DO NOTHING
+          RETURNING id`,
     );
+    if (!inserted[0]) throw new EntryAlreadyReversedError(entryId);
 
     const delta = balanceDelta(original.entry_type, original.direction, amount);
     if (delta !== 0 && original.customer_id) {
@@ -274,6 +288,6 @@ export async function reverseLedgerEntry(
             (${shopId}, 'USER', 'seller', 'LEDGER_REVERSAL', 'ledger_entry', ${entryId}, ${reason.slice(0, 500)})`,
     );
 
-    return { reversalEntryId: reversalId, alreadyReversed: false };
+    return { reversalEntryId: reversalId };
   });
 }

@@ -1,4 +1,4 @@
-import { Pool, type PoolClient } from "pg";
+import { Client, Pool, type PoolClient } from "pg";
 import { env } from "./env";
 import { logger } from "./logger";
 
@@ -42,16 +42,44 @@ export interface DatabaseInfo {
   version: string;
   database: string;
   role: string;
+  encoding: string;
 }
 
 export async function connectDb(connectionString: string = env.DATABASE_URL): Promise<DatabaseInfo> {
-  const client = await getPool(connectionString).connect();
+  // Validate on a dedicated connection. The runtime pool may already be bound to another
+  // database (tests use this to probe a deliberately mis-encoded cluster); a failed check
+  // must not leave a pool pointed at a database the server is refusing to use.
+  const client = new Client({
+    connectionString,
+    application_name: "bma-api-startup",
+    connectionTimeoutMillis: 5_000,
+    ...sslOptions(),
+  });
+  await client.connect();
   try {
-    const result = await client.query<{ version: string; database: string; role: string }>(
-      "SELECT version(), current_database() AS database, current_user AS role",
+    const result = await client.query<{
+      version: string;
+      database: string;
+      role: string;
+      encoding: string;
+    }>(
+      `SELECT version(),
+              current_database() AS database,
+              current_user AS role,
+              pg_encoding_to_char(d.encoding) AS encoding
+         FROM pg_database d
+        WHERE d.datname = current_database()`,
     );
     const row = result.rows[0];
     if (!row) throw new Error("database did not return a version row");
+
+    if (row.encoding !== "UTF8") {
+      throw new Error(
+        `refusing to start: database "${row.database}" uses encoding ${row.encoding}; ` +
+          "Business Memory AI requires UTF8 so the rupee sign and other non-ASCII text " +
+          "can be stored safely",
+      );
+    }
 
     const privileges = await client.query<{ rolsuper: boolean; rolbypassrls: boolean }>(
       `SELECT r.rolsuper, r.rolbypassrls
@@ -67,10 +95,16 @@ export async function connectDb(connectionString: string = env.DATABASE_URL): Pr
       );
     }
 
-    logger.info({ database: row.database, role: row.role, version: row.version }, "postgres connected");
+    // All startup checks passed: now bind the process-wide runtime pool.
+    getPool(connectionString);
+
+    logger.info(
+      { database: row.database, role: row.role, version: row.version, encoding: row.encoding },
+      "postgres connected",
+    );
     return row;
   } finally {
-    client.release();
+    await client.end();
   }
 }
 
@@ -121,8 +155,14 @@ const MAX_TRANSACTION_ATTEMPTS = 3;
  * rather than returned to the pool with an unknown session state.
  */
 export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  const currentPool = getPool();
+  return withTransactionOnPool(getPool(), fn);
+}
 
+/** Same transaction contract as `withTransaction`, against an explicitly supplied pool. */
+export async function withTransactionOnPool<T>(
+  currentPool: Pool,
+  fn: (client: PoolClient) => Promise<T>,
+): Promise<T> {
   for (let attempt = 1; ; attempt += 1) {
     const client = await currentPool.connect();
     let released = false;

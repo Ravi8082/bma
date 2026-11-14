@@ -8,6 +8,7 @@ import { migrate } from "postgres-migrations";
 const REPO_ROOT = process.cwd();
 const DATA_DIR = path.join(REPO_ROOT, ".data");
 const URI_FILE = path.join(DATA_DIR, "test-pg-uri");
+const BOOTSTRAP_URI_FILE = path.join(DATA_DIR, "test-pg-bootstrap-uri");
 const DATABASE_NAME = "business_memory";
 // Deliberately separate from the developer's PostgreSQL service and from an abandoned
 // fallback process after an interrupted test run.
@@ -158,6 +159,7 @@ export async function setup(): Promise<void> {
   handle = provider;
   const uri = await bootstrap(provider.bootstrapUrl);
   writeFileSync(URI_FILE, uri, "utf8");
+  writeFileSync(BOOTSTRAP_URI_FILE, provider.bootstrapUrl, "utf8");
 }
 
 export async function teardown(): Promise<void> {

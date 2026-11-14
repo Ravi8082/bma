@@ -10,6 +10,7 @@
 import { withTransaction } from "../config/db";
 import { queryWithoutTenant } from "../db/tenant";
 import { sql } from "../db/sql";
+import { sellerAdvisoryKey } from "./advisory";
 
 export interface ClaimedMessage {
   id: string;
@@ -42,13 +43,7 @@ const MAX_ATTEMPTS = 3;
 const LEASE_SECONDS = 30;
 const RETRY_BACKOFF_SECONDS = 2;
 
-function advisoryKey(shopId: string): string {
-  // 64-bit signed key derived from the UUID. asIntN keeps it inside PostgreSQL bigint.
-  return BigInt.asIntN(64, BigInt(`0x${shopId.replace(/-/g, "").slice(0, 16)}`)).toString();
-}
-
-/**
- * Claim the oldest unfinished message for one seller.
+/** Claim the oldest unfinished message for one seller.
  * Returns null when another worker already holds the seller's advisory lock or there is no
  * claimable message.
  */
@@ -56,7 +51,7 @@ export async function claimNextForShop(shopId: string): Promise<ClaimedMessage |
   return withTransaction(async (client) => {
     const lock = await client.query<{ acquired: boolean }>(
       "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
-      [advisoryKey(shopId)],
+      [sellerAdvisoryKey(shopId)],
     );
     if (!lock.rows[0]?.acquired) return null;
 
@@ -92,7 +87,7 @@ export async function claimNextGlobal(): Promise<ClaimedMessage | null> {
 
     const lock = await client.query<{ acquired: boolean }>(
       "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
-      [advisoryKey(row.shop_id)],
+      [sellerAdvisoryKey(row.shop_id)],
     );
     if (!lock.rows[0]?.acquired) return null;
 

@@ -158,9 +158,13 @@ async function handleInteractive(message: InboxMessage, deps: InboundDeps): Prom
   const action = match[1];
   const draftId = match[2] ?? "";
   if (action === "confirm") {
-    await confirmDraft(message.shopId, draftId, { keyRef: deps.keyRef });
+    const result = await confirmDraft(message.shopId, draftId, { keyRef: deps.keyRef });
+    // A Confirm must never be acknowledged before its draft exists. Processing it first is a
+    // race, not success: leave the message retryable so the draft can catch up.
+    if (result.status === "NOT_FOUND") throw new Error(`DRAFT_NOT_FOUND: ${draftId}`);
   } else {
-    await cancelDraft(message.shopId, draftId, { keyRef: deps.keyRef });
+    const result = await cancelDraft(message.shopId, draftId, { keyRef: deps.keyRef });
+    if (result.status === "NOT_FOUND") throw new Error(`DRAFT_NOT_FOUND: ${draftId}`);
   }
 }
 

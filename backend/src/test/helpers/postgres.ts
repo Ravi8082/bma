@@ -6,12 +6,22 @@ import { connectDb, disconnectDb } from "../../config/db";
 import { withTenant, type TenantContext, type TenantDb } from "../../db/tenant";
 
 const URI_FILE = path.join(process.cwd(), ".data", "test-pg-uri");
+const BOOTSTRAP_URI_FILE = path.join(process.cwd(), ".data", "test-pg-bootstrap-uri");
 
 export function readTestDatabaseUrl(): string {
   const fromEnv = process.env.TEST_DATABASE_URL;
   if (fromEnv) return fromEnv;
   const uri = readFileSync(URI_FILE, "utf8").trim();
   if (!uri) throw new Error("no test database URI was written by globalSetup");
+  return uri;
+}
+
+/** Superuser URI for test-only cluster operations (create/drop a probe database). */
+export function readTestBootstrapUrl(): string {
+  const fromEnv = process.env.TEST_BOOTSTRAP_DATABASE_URL;
+  if (fromEnv) return fromEnv;
+  const uri = readFileSync(BOOTSTRAP_URI_FILE, "utf8").trim();
+  if (!uri) throw new Error("no bootstrap database URI was written by globalSetup");
   return uri;
 }
 

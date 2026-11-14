@@ -8,12 +8,21 @@
  */
 
 import type { Request, Response } from "express";
+import type { ClientBase } from "pg";
 import { createHash } from "node:crypto";
 import { env, isProduction } from "../config/env";
 import { withTransaction } from "../config/db";
 import { logger } from "../config/logger";
 import { normalisePhone } from "../crypto/phone";
 import { phoneBlindIndex } from "../crypto/blindIndex";
+import { sellerAdvisoryKey } from "./advisory";
+
+/**
+ * Transaction seam. Production uses `withTransaction`; tests inject a gated or failing
+ * runner to prove ordering and persistence-failure behaviour without changing the handler.
+ * `ClientBase` is the shared query surface of a pooled client and a standalone client.
+ */
+export type WebhookTransactionRunner = <T>(fn: (client: ClientBase) => Promise<T>) => Promise<T>;
 
 interface WhatsAppMessage {
   id?: string;
@@ -95,7 +104,11 @@ function extractMessages(payload: WhatsAppWebhookPayload): Array<{
   return messages;
 }
 
-export async function handleWebhookPost(req: Request, res: Response): Promise<void> {
+export async function handleWebhookPost(
+  req: Request,
+  res: Response,
+  runTransaction: WebhookTransactionRunner = withTransaction,
+): Promise<void> {
   const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
   if (!rawBody || !Buffer.isBuffer(rawBody)) {
     res.status(400).json({ ok: false, error: { code: "MISSING_BODY", message: "raw body not available" } });
@@ -120,8 +133,8 @@ export async function handleWebhookPost(req: Request, res: Response): Promise<vo
   const bodyHash = sha256(rawBody);
 
   try {
-    await withTransaction(async (client) => {
-      for (const message of messages) {
+    for (const message of messages) {
+      await runTransaction(async (client) => {
         let shopId: string | null = null;
         let fromBidx: Buffer | null = null;
         try {
@@ -138,7 +151,13 @@ export async function handleWebhookPost(req: Request, res: Response): Promise<vo
 
         // Unknown senders belong to onboarding, which is a later phase. Acknowledge so Meta
         // stops retrying; nothing is written because inbox_messages requires a shop.
-        if (!shopId || !fromBidx) continue;
+        if (!shopId || !fromBidx) return;
+
+        // Serialize inserts per seller. The transaction-scoped lock is held until COMMIT, so
+        // a message with a later arrival sequence can never commit before an earlier one.
+        // Without this, the claim's `NOT EXISTS earlier arrival_seq` check could see only the
+        // later message and process it first.
+        await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [sellerAdvisoryKey(shopId)]);
 
         // One sequence value per persisted message. A batch-wide base + index would collide
         // with a concurrent delivery and make per-seller ordering ambiguous.
@@ -166,8 +185,8 @@ export async function handleWebhookPost(req: Request, res: Response): Promise<vo
             Number(message.timestamp),
           ],
         );
-      }
-    });
+      });
+    }
   } catch (error) {
     logger.error({ err: error }, "webhook persistence failed");
     res.status(500).json({

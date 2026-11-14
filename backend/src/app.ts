@@ -10,12 +10,18 @@ import { notFoundHandler } from "./middleware/notFound";
 import { requestId } from "./middleware/requestId";
 import { createSimulatorRouter } from "./simulator/simulator.routes";
 import { createWebhookRouter } from "./whatsapp/webhookRoutes";
+import type { WebhookTransactionRunner } from "./whatsapp/webhookController";
 import { captureRawBody } from "./whatsapp/webhookSignature";
 
 export interface AppDependencies {
   health?: Partial<HealthDependencies>;
   /** Mount the WhatsApp webhook only when a secret and verify token are configured. */
-  webhook?: { appSecret: string; verifyToken: string };
+  webhook?: {
+    appSecret: string;
+    verifyToken: string;
+    /** Test seam; production leaves this undefined and uses `withTransaction`. */
+    runTransaction?: WebhookTransactionRunner;
+  };
 }
 
 export function createApp(deps: AppDependencies = {}): Express {
@@ -56,7 +62,11 @@ export function createApp(deps: AppDependencies = {}): Express {
   if (deps.webhook) {
     app.use(
       "/webhooks/whatsapp",
-      createWebhookRouter(deps.webhook.appSecret, deps.webhook.verifyToken),
+      createWebhookRouter(
+        deps.webhook.appSecret,
+        deps.webhook.verifyToken,
+        deps.webhook.runTransaction,
+      ),
     );
   }
 

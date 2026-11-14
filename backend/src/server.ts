@@ -12,7 +12,7 @@ const SHUTDOWN_TIMEOUT_MS = 25_000;
 async function main(): Promise<void> {
   const connection = await connectDb();
   logger.info(
-    { database: connection.database, role: connection.role, version: connection.version },
+    { database: connection.database, role: connection.role, version: connection.version, encoding: connection.encoding },
     "database ready",
   );
 
