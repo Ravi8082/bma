@@ -348,7 +348,7 @@
     "expected": {
       "customerName": "Suresh",
       "amountPaise": 250000,
-      "entryType": "SALE"
+      "entryType": "PAYMENT_IN"
     },
     "holdout": true,
     "synthetic": true,
@@ -390,7 +390,7 @@
     "expected": {
       "customerName": "Dinesh",
       "amountPaise": 20000,
-      "entryType": "SALE"
+      "entryType": "PAYMENT_IN"
     },
     "holdout": true,
     "synthetic": true,
@@ -428,7 +428,7 @@
     "expected": {
       "customerName": "Anita",
       "amountPaise": 50000,
-      "entryType": "SALE"
+      "entryType": "PAYMENT_IN"
     },
     "holdout": true,
     "synthetic": true,

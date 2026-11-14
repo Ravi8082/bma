@@ -13,15 +13,15 @@ describe("extraction helpers", () => {
   });
 
   it("accepts a valid extracted entry", () => {
-    expect(validateExtracted({ customerName: "Ramesh", amountPaise: 30000, entryType: "SALE", isCreditSale: true }, "Ramesh 300 udhaar")).toBe(true);
+    expect(validateExtracted({ customerName: "Ramesh", amountPaise: 30000, entryType: "SALE", isCreditSale: true, typeUnclear: false }, "Ramesh 300 udhaar")).toBe(true);
   });
 
   it("rejects an amount not present in the source", () => {
-    expect(validateExtracted({ customerName: "Ramesh", amountPaise: 50000, entryType: "SALE", isCreditSale: true }, "Ramesh 300 udhaar")).toBe(false);
+    expect(validateExtracted({ customerName: "Ramesh", amountPaise: 50000, entryType: "SALE", isCreditSale: true, typeUnclear: false }, "Ramesh 300 udhaar")).toBe(false);
   });
 
   it("rejects an empty customer name", () => {
-    expect(validateExtracted({ customerName: "", amountPaise: 30000, entryType: "SALE", isCreditSale: true }, "Ramesh 300 udhaar")).toBe(false);
+    expect(validateExtracted({ customerName: "", amountPaise: 30000, entryType: "SALE", isCreditSale: true, typeUnclear: false }, "Ramesh 300 udhaar")).toBe(false);
   });
 });
 
@@ -47,6 +47,13 @@ describe("LlmExtractionParser fallback", () => {
   it("falls back when the daily cap is exceeded", async () => {
     const p = new StubLlmProvider();
     const parser = new LlmExtractionParser(p, "11111111-2222-3333-4444-555555555555", { isOpen: () => false, recordFailure: () => {}, recordSuccess: () => {} }, 0, { callsToday: 0 });
+    const r = await parser.parseAsync!("Ramesh 300 udhaar");
+    expect(r?.customerName).toBe("Ramesh");
+  });
+
+  it("falls back when consent is not privacy-v2", async () => {
+    const p = new StubLlmProvider();
+    const parser = new LlmExtractionParser(p, "11111111-2222-3333-4444-555555555555", { isOpen: () => false, recordFailure: () => {}, recordSuccess: () => {} }, 1000, { callsToday: 0 }, () => false);
     const r = await parser.parseAsync!("Ramesh 300 udhaar");
     expect(r?.customerName).toBe("Ramesh");
   });

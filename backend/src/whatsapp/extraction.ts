@@ -18,6 +18,7 @@ export interface LlmExtracted {
   amountPaise: number;
   entryType: "SALE" | "PAYMENT_IN" | "PURCHASE" | "PAYMENT_OUT" | "EXPENSE";
   isCreditSale: boolean;
+  typeUnclear: boolean;
 }
 
 export interface LlmProvider {
@@ -78,6 +79,7 @@ export class LlmExtractionParser implements EntryParser {
     private readonly circuitBreaker: { isOpen(): boolean; recordFailure(): void; recordSuccess(): void },
     private readonly dailyCap: number,
     private readonly state: { callsToday: number },
+    private readonly consentOk: () => boolean = () => true,
   ) {}
 
   parse(text: string, options?: { maxAmountPaise?: number }): ParsedEntry | null {
@@ -92,6 +94,10 @@ export class LlmExtractionParser implements EntryParser {
     const redacted = redactPhones(text);
 
     if (this.circuitBreaker.isOpen()) {
+      return deterministicParser.parse(text, options);
+    }
+    if (!this.consentOk()) {
+      await recordCost({ shopId: this.shopId, provider: this.provider.name, model: this.provider.model, kind: "LLM", outcome: "FALLBACK", costPaise: 0 });
       return deterministicParser.parse(text, options);
     }
     if (this.state.callsToday >= this.dailyCap) {
@@ -125,13 +131,15 @@ export class LlmExtractionParser implements EntryParser {
         (parsed.entryType === "SALE" || parsed.entryType === "PAYMENT_IN" ||
           parsed.entryType === "PURCHASE" || parsed.entryType === "PAYMENT_OUT" ||
           parsed.entryType === "EXPENSE") &&
-        typeof parsed.isCreditSale === "boolean"
+        typeof parsed.isCreditSale === "boolean" &&
+        typeof parsed.typeUnclear === "boolean"
       ) {
         extracted = {
           customerName: parsed.customerName,
           amountPaise: parsed.amountPaise,
           entryType: parsed.entryType,
           isCreditSale: parsed.isCreditSale,
+          typeUnclear: parsed.typeUnclear,
         };
       }
     } catch {
@@ -156,6 +164,7 @@ export class LlmExtractionParser implements EntryParser {
       entryType: extracted.entryType,
       direction,
       isCreditSale: extracted.isCreditSale,
+      typeUnclear: extracted.typeUnclear,
     };
   }
 }
@@ -172,6 +181,7 @@ export class StubLlmProvider implements LlmProvider {
       amountPaise: det.amountPaise,
       entryType: det.entryType,
       isCreditSale: det.isCreditSale,
+      typeUnclear: det.typeUnclear,
     });
     return { raw, promptTokens: 0, completionTokens: 0 };
   }

@@ -50,6 +50,7 @@ function makeCase(i: number, lang: "hi" | "en" | "hinglish", holdout: boolean, h
   } else {
     const variants = [`${name} ${amount} udhaar`, `${name} ${amount} ka maal`, `${name} ne ${amount} diya`];
     text = variants[i % variants.length]!;
+    if (text.includes("diya")) entryType = "PAYMENT_IN";
   }
   if (i % 17 === 0) return { id: `${lang}-${i}`, lang, text: "hello", expected: null, holdout, synthetic: true, hard: false, expectClarification: false };
   if (i % 19 === 0) return { id: `${lang}-${i}`, lang, text: `${name} ${amount} udhaar, 50 wapas aaye`, expected: null, holdout, synthetic: true, hard: false, expectClarification: true };

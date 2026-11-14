@@ -63,6 +63,10 @@ describe("A6: no DB transaction open during LLM call", () => {
             "SELECT COUNT(*) AS count FROM pg_stat_activity WHERE state = 'idle in transaction' AND application_name = 'bma-api'",
           );
           expect(Number(rows.rows[0]?.count ?? "0")).toBe(0);
+          const locks = await client.query<{ count: string }>(
+            "SELECT COUNT(*) AS count FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE a.application_name = 'bma-api' AND l.locktype = 'advisory'",
+          );
+          expect(Number(locks.rows[0]?.count ?? "0")).toBe(0);
         } finally {
           client.release();
         }

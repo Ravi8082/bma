@@ -64,6 +64,11 @@ function printReport(label: string, cases: Case[]): void {
   console.log(`wrong_type:                    ${summary.wrong_type}`);
   console.log(`wrong_amount_no_clarification: ${summary.wrong_amount_no_clarification}  (ZERO TARGET)`);
   console.log(`other:                         ${summary.other}`);
+  const sum = Object.values(summary).reduce((a, b) => a + b, 0);
+  if (sum !== cases.length) {
+    console.error(`CHECK FAILED: category sum ${sum} != total ${cases.length}`);
+    process.exit(1);
+  }
   console.log("");
   // Show up to 5 examples per non-zero failing category.
   const categories: Outcome[] = ["wrong_customer", "wrong_type", "wrong_amount_no_clarification", "other", "extraction_failed"];
