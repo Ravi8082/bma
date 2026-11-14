@@ -168,7 +168,7 @@ amounts against the transcript, plan limits).
 
 | # | Requirement | Acceptance test |
 |---|---|---|
-| H1 | **At least 50 Hindi/Hinglish and 50 English messages** with expected output committed under `eval/`, **including at least 30 real anonymised seller messages** provided by the reviewer | `eval/` contains ≥ 100 synthetic + ≥ 30 real cases with expected JSON |
+| H1 | **At least 50 Hindi/Hinglish and 50 English messages** with expected output committed under `eval/`; the current set is synthetic and is not called a hold-out; the reviewer will provide at least 30 real anonymised seller messages as the true hold-out | `eval/` contains ≥ 100 synthetic cases; `eval/holdout.json` is marked synthetic |
 | H5 | **"Wrong amount posted without clarification" is reported separately; target is 0** and is an acceptance condition | Report prints the count; acceptance requires 0 |
 | H6 | **Real-LLM eval is run manually** with a key from the environment, not in CI; raw output is pasted | `npm run eval:extraction:live` prints accuracy; output pasted in review |
 | H2 | A command prints accuracy and the share needing clarification | `npm run eval:extraction` prints both numbers |
