@@ -4,27 +4,28 @@
  * notification is composed.
  */
 
-import { randomUUID } from "node:crypto";
+
 import { env } from "../config/env";
 import { encryptField } from "../crypto/fieldEncryption";
 import { phoneBlindIndex } from "../crypto/blindIndex";
 import { normalisePhone } from "../crypto/phone";
-import { withTenant, type TenantDb } from "../db/tenant";
+import { withTenant } from "../db/tenant";
+import type { MessagingProvider } from "../integrations/messaging/types";
 import { sql } from "../db/sql";
-import { raiseInboxDeadLetter } from "./alerts";
-import { cancelDraft, confirmDraft, formatPaise } from "./confirmation";
-import { needsReconsent, getLatestConsentVersion, recordConsent, reconsentAlreadySentToday } from "../modules/onboarding/consent";
+import { raiseInboxDeadLetter, raiseOutboxStale } from "./alerts";
+import { cancelDraft, confirmDraft, formatPaise, reverseLedgerEntry } from "./confirmation";
+import { needsReconsent, getLatestConsentVersion, recordConsent, reconsentAlreadySentToday, consentDeclinedRecently } from "../modules/onboarding/consent";
 import { findOrCreateCustomer as findOrCreateCustomerModule } from "../modules/customers/customers";
 import { claimNextForShop, getInboxMessage, markDone, markFailed, type InboxMessage } from "./inbox";
 import { enqueueOutbound, enqueueOutboundTx } from "./outbound";
 import { flushQueuedOutboundForShop } from "./outboundSender";
-import type { EntryParser } from "./parser";
+import type { EntryParser, ParsedEntry } from "./parser";
 
 export interface InboundDeps {
   parser: EntryParser;
   keyRef: string;
   blindIndexKey: string;
-  messaging?: import("../integrations/messaging/types").MessagingProvider;
+  messaging?: MessagingProvider;
 }
 
 export type InboxOutcome = "DONE" | "FAILED" | "DEAD" | "EMPTY";
@@ -61,16 +62,126 @@ function buttonId(body: Record<string, unknown>): string | null {
   return typeof button?.payload === "string" ? button.payload : null;
 }
 
-function normaliseName(name: string): string {
-  return name.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
 // Customer matching is delegated to modules/customers/customers.ts so ambiguity is
 // handled consistently (no auto-pick). findOrCreateCustomerModule is imported above.
 
 async function handleText(message: InboxMessage, deps: InboundDeps): Promise<void> {
   const text = textBody(message.body);
   if (!text) throw new Error("EMPTY_TEXT");
+
+  // Check for a pending edit in the DB (survives restarts, expires after 2 minutes).
+  const pendingRow = await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+    const rows = await db.query<{ id: string; draft_id: string; field: string; expires_at: Date }>(
+      sql`SELECT id, draft_id, field, expires_at FROM app.pending_edits WHERE shop_id = ${message.shopId} AND expires_at > now() ORDER BY created_at DESC LIMIT 1`,
+    );
+    return rows[0] ?? null;
+  });
+
+  if (pendingRow) {
+    // If the message parses as a new entry, ask once instead of treating it as the edit value.
+    const parsed = deps.parser.parse(text, { maxAmountPaise: env.MAX_ENTRY_PAISE });
+    if (parsed.kind === "PARSED" || parsed.kind === "MULTI") {
+      const sellerPhone = senderPhone(message.body);
+      if (sellerPhone) {
+        const bidx = phoneBlindIndex(sellerPhone, deps.blindIndexKey);
+        await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+          const enc = encryptField(sellerPhone, deps.keyRef, 1, { shopId: message.shopId, table: "outbox_events", column: "recipient_phone_enc" });
+          await enqueueOutboundTx(db, {
+            shopId: message.shopId,
+            recipientPhoneBidx: bidx,
+            recipientPhoneEnc: enc,
+            keyVersion: 1,
+            messageType: "TEXT",
+            payload: { to: sellerPhone, text: "Is this the new amount for the draft, or a new entry?" },
+          });
+        });
+      }
+      return;
+    }
+    await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+      await db.execute(sql`DELETE FROM app.pending_edits WHERE id = ${pendingRow.id}`);
+      if (pendingRow.field === "name") {
+        await db.execute(sql`UPDATE app.entry_drafts SET customer_name = ${text} WHERE shop_id = ${message.shopId} AND id = ${pendingRow.draft_id} AND status = 'PENDING'`);
+      } else if (pendingRow.field === "amount") {
+        const amt = Number.parseInt(text, 10);
+        if (!Number.isFinite(amt) || amt <= 0) throw new Error("INVALID_AMOUNT");
+        await db.execute(sql`UPDATE app.entry_drafts SET amount_paise = ${amt} WHERE shop_id = ${message.shopId} AND id = ${pendingRow.draft_id} AND status = 'PENDING'`);
+      } else if (pendingRow.field === "type") {
+        const isCredit = /credit/i.test(text);
+        await db.execute(sql`UPDATE app.entry_drafts SET is_credit_sale = ${isCredit}, type_unclear = false WHERE shop_id = ${message.shopId} AND id = ${pendingRow.draft_id} AND status = 'PENDING'`);
+      }
+    });
+    return;
+  }
+
+  const sellerPhone = senderPhone(message.body);
+  if (!sellerPhone) throw new Error("MISSING_SELLER_PHONE");
+  const sellerBidx = phoneBlindIndex(sellerPhone, deps.blindIndexKey);
+
+  // Feature flag: undo/edit disabled by default per shop.
+  const undoEditEnabled = await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+    const rows = await db.query<{ undo_edit_enabled: boolean }>(sql`SELECT undo_edit_enabled FROM app.shop_settings WHERE shop_id = ${message.shopId}`);
+    return rows[0]?.undo_edit_enabled ?? false;
+  });
+  if (!undoEditEnabled && (/^undo$/i.test(text.trim()) || /^edit\s/i.test(text.trim()))) {
+    const sp = sellerPhone;
+    const bidx = phoneBlindIndex(sp, deps.blindIndexKey);
+    await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+      const enc = encryptField(sp, deps.keyRef, 1, { shopId: message.shopId, table: "outbox_events", column: "recipient_phone_enc" });
+      await enqueueOutboundTx(db, { shopId: message.shopId, recipientPhoneBidx: bidx, recipientPhoneEnc: enc, keyVersion: 1, messageType: "TEXT", payload: { to: sp, text: "Undo/Edit is not enabled for this shop." } });
+    });
+    return;
+  }
+
+  // Seller-facing undo command: show which entry will be reversed, needs a tap.
+  if (/^undo$/i.test(text.trim())) {
+    const entry = await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+      const rows = await db.query<{ id: string; confirmed_entry_id: string | null; customer_name: string; amount_paise: string; entry_type: string }>(
+        sql`SELECT id, confirmed_entry_id, customer_name, amount_paise, entry_type FROM app.entry_drafts WHERE shop_id = ${message.shopId} AND status = 'CONFIRMED' ORDER BY confirmed_at DESC LIMIT 1`,
+      );
+      return rows[0] ?? null;
+    });
+    if (entry && entry.confirmed_entry_id) {
+      await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+        const enc = encryptField(sellerPhone, deps.keyRef, 1, { shopId: message.shopId, table: "outbox_events", column: "recipient_phone_enc" });
+        await enqueueOutboundTx(db, {
+          shopId: message.shopId,
+          recipientPhoneBidx: sellerBidx,
+          recipientPhoneEnc: enc,
+          keyVersion: 1,
+          messageType: "TEXT",
+          payload: {
+            to: sellerPhone,
+            body: `Undo ${entry.amount_paise} ${entry.entry_type} for ${entry.customer_name}? Tap to confirm.`,
+            buttons: [{ id: `undo_confirm:${entry.confirmed_entry_id}`, title: "Undo" }],
+          },
+        });
+      });
+    }
+    return;
+  }
+
+  // Seller-facing edit command before confirm: "edit <draftId> name|amount|type <value>"
+  const editMatch = /^edit\s+([0-9a-fA-F-]{36})\s+(name|amount|type)\s+(.+)$/i.exec(text.trim());
+  if (editMatch) {
+    const draftId = editMatch[1]!;
+    const field = editMatch[2]!.toLowerCase();
+    const value = editMatch[3]!.trim();
+    await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+      if (field === "name") {
+        await db.execute(sql`UPDATE app.entry_drafts SET customer_name = ${value} WHERE shop_id = ${message.shopId} AND id = ${draftId} AND status = 'PENDING'`);
+      } else if (field === "amount") {
+        await db.execute(sql`UPDATE app.entry_drafts SET amount_paise = ${Number.parseInt(value, 10)} WHERE shop_id = ${message.shopId} AND id = ${draftId} AND status = 'PENDING'`);
+      } else if (field === "type") {
+        const isCredit = /credit/i.test(value);
+        await db.execute(sql`UPDATE app.entry_drafts SET is_credit_sale = ${isCredit}, type_unclear = false WHERE shop_id = ${message.shopId} AND id = ${draftId} AND status = 'PENDING'`);
+      }
+    });
+    return;
+  }
+
+  // interactive undo confirm
+  // (handled in handleInteractive below via undo_confirm button)
 
   const parseResult =
     typeof deps.parser.parseAsync === "function"
@@ -102,36 +213,42 @@ async function handleText(message: InboxMessage, deps: InboundDeps): Promise<voi
     }
     return; // no draft; message already marked DONE by caller
   }
-  const parsed = parseResult.entry;
+  const entries: ParsedEntry[] = parseResult.kind === "MULTI" ? parseResult.entries : [ (parseResult as { kind: "PARSED"; entry: ParsedEntry }).entry ];
 
-  const sellerPhone = senderPhone(message.body);
   if (!sellerPhone) throw new Error("MISSING_SELLER_PHONE");
 
-  const sellerBidx = phoneBlindIndex(sellerPhone, deps.blindIndexKey);
   const sellerPhoneEnc = encryptField(sellerPhone, deps.keyRef, 1, {
     shopId: message.shopId,
     table: "entry_drafts",
     column: "seller_phone_enc",
   });
 
-  await withTenant(
-    { shopId: message.shopId, actorType: "WORKER", actorId: "inbound" },
-    async (db) => {
-      const customerMatch = await findOrCreateCustomerModule(db, message.shopId, parsed.customerName, deps.blindIndexKey);
+  for (let entryIdx = 0; entryIdx < entries.length; entryIdx++) {
+    const parsed = entries[entryIdx]!;
+    await withTenant(
+      { shopId: message.shopId, actorType: "WORKER", actorId: "inbound" },
+      async (db) => {
+        const customerMatch = await findOrCreateCustomerModule(db, message.shopId, parsed.customerName, deps.blindIndexKey);
       const customerId = customerMatch.customerId;
       const customerAmbiguous = customerMatch.ambiguous;
 
+      const inlinePhoneEnc = parsed.sellerPhone
+        ? encryptField(parsed.sellerPhone, deps.keyRef, 1, { shopId: message.shopId, table: "entry_drafts", column: "customer_phone_enc" })
+        : null;
+      const inlinePhoneBidx = parsed.sellerPhone ? phoneBlindIndex(parsed.sellerPhone, deps.blindIndexKey) : null;
       const inserted = await db.query<{ id: string }>(
         sql`INSERT INTO app.entry_drafts
               (shop_id, source_message_id, wa_message_id, customer_id, customer_name, entry_type,
                direction, amount_paise, is_credit_sale, raw_text, source_tag, status,
-               seller_phone_enc, seller_phone_bidx, key_version)
+               seller_phone_enc, seller_phone_bidx, key_version, type_unclear,
+               customer_phone_enc, customer_phone_bidx, entry_index)
             VALUES
               (${message.shopId}, ${message.id}, ${message.waMessageId}, ${customerId},
                ${parsed.customerName}, ${parsed.entryType}, ${parsed.direction},
                ${parsed.amountPaise}, ${parsed.isCreditSale}, ${text.slice(0, 1000)}, 'SELLER',
-               'PENDING', ${sellerPhoneEnc}, ${sellerBidx}, 1)
-            ON CONFLICT (shop_id, source_message_id) DO NOTHING
+               'PENDING', ${sellerPhoneEnc}, ${sellerBidx}, 1, ${parsed.typeUnclear},
+               ${inlinePhoneEnc}, ${inlinePhoneBidx}, ${entryIdx})
+            ON CONFLICT (shop_id, source_message_id, entry_index) DO NOTHING
             RETURNING id`,
       );
 
@@ -173,15 +290,23 @@ async function handleText(message: InboxMessage, deps: InboundDeps): Promise<voi
           body:
             `New entry: ${formatPaise(parsed.amountPaise)} ${
               parsed.entryType === "PAYMENT_IN" ? "payment" : "credit sale"
-            } for ${parsed.customerName}.\nConfirm or cancel.`,
-          buttons: [
-            { id: `confirm:${draft.id}`, title: "Confirm" },
-            { id: `cancel:${draft.id}`, title: "Cancel" },
-          ],
+            } for ${parsed.customerName}.${parsed.sellerPhone ? `\nPhone: ${parsed.sellerPhone}` : ""}\nConfirm or cancel.`,
+          buttons: parsed.typeUnclear
+            ? [
+                { id: `resolve_credit:${draft.id}`, title: "Credit" },
+                { id: `resolve_cash:${draft.id}`, title: "Cash" },
+                { id: `cancel:${draft.id}`, title: "Cancel" },
+              ]
+            : [
+                { id: `confirm:${draft.id}`, title: "Confirm" },
+                { id: `edit:${draft.id}`, title: "Edit" },
+                { id: `cancel:${draft.id}`, title: "Cancel" },
+              ],
         },
       });
     },
   );
+  }
 }
 
 async function handleInteractive(message: InboxMessage, deps: InboundDeps): Promise<void> {
@@ -191,10 +316,135 @@ async function handleInteractive(message: InboxMessage, deps: InboundDeps): Prom
     await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
       const users = await db.query<{ id: string }>(sql`SELECT id FROM app.users WHERE shop_id = ${message.shopId} AND role = 'OWNER' ORDER BY created_at LIMIT 1`);
       const userId = users[0]?.id;
-      if (userId) await recordConsent(message.shopId, userId, granted, granted ? "privacy-v2" : "privacy-v1");
+      if (userId) await recordConsent(message.shopId, userId, granted, granted ? "privacy-v2" : "declined");
     });
     return;
   }
+  const undoMatch = id ? /^undo_confirm:([0-9a-fA-F-]{36})$/.exec(id) : null;
+  if (undoMatch) {
+    const entryId = undoMatch[1] ?? "";
+    await reverseLedgerEntry(message.shopId, entryId, "seller undo");
+    return;
+  }
+  const resolveMatch = id ? /^resolve_(credit|cash):([0-9a-fA-F-]{36})$/.exec(id) : null;
+  if (resolveMatch) {
+    const choice = resolveMatch[1];
+    const draftId = resolveMatch[2] ?? "";
+    await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+      await db.execute(sql`UPDATE app.entry_drafts
+             SET type_unclear = false,
+                 is_credit_sale = ${choice === "credit"},
+                 entry_type = CASE WHEN ${choice === "credit"} THEN 'SALE' ELSE entry_type END,
+                 direction = CASE WHEN ${choice === "cash"} THEN 'CREDIT' ELSE direction END
+           WHERE shop_id = ${message.shopId} AND id = ${draftId} AND status = 'PENDING'`);
+    });
+    return;
+  }
+  const editPickMatch = id ? /^edit_(name|amount|type):([0-9a-fA-F-]{36})$/.exec(id) : null;
+  if (editPickMatch) {
+    const field = editPickMatch[1]!;
+    const draftId = editPickMatch[2]!;
+    const sellerPhone2 = senderPhone(message.body);
+    if (sellerPhone2) {
+      const bidx2 = phoneBlindIndex(sellerPhone2, deps.blindIndexKey);
+      await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+        const enc = encryptField(sellerPhone2, deps.keyRef, 1, { shopId: message.shopId, table: "outbox_events", column: "recipient_phone_enc" });
+        await enqueueOutboundTx(db, {
+          shopId: message.shopId,
+          recipientPhoneBidx: bidx2,
+          recipientPhoneEnc: enc,
+          keyVersion: 1,
+          messageType: "TEXT",
+          payload: { to: sellerPhone2, text: `Send new ${field}.` },
+        });
+      });
+    }
+    await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+      await db.execute(sql`INSERT INTO app.pending_edits (shop_id, draft_id, field, expires_at) VALUES (${message.shopId}, ${draftId}, ${field}, now() + interval '2 minutes')`);
+    });
+    return;
+  }
+
+  const editMatch2 = id ? /^edit:([0-9a-fA-F-]{36})$/.exec(id) : null;
+  if (editMatch2) {
+    const draftId = editMatch2[1]!;
+    const sellerPhone2 = senderPhone(message.body);
+    if (sellerPhone2) {
+      const bidx2 = phoneBlindIndex(sellerPhone2, deps.blindIndexKey);
+      await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+        const enc = encryptField(sellerPhone2, deps.keyRef, 1, { shopId: message.shopId, table: "outbox_events", column: "recipient_phone_enc" });
+        await enqueueOutboundTx(db, {
+          shopId: message.shopId,
+          recipientPhoneBidx: bidx2,
+          recipientPhoneEnc: enc,
+          keyVersion: 1,
+          messageType: "TEXT",
+          payload: {
+            to: sellerPhone2,
+            text: "What to change?",
+            buttons: [
+              { id: `edit_name:${draftId}`, title: "Name" },
+              { id: `edit_amount:${draftId}`, title: "Amount" },
+              { id: `edit_type:${draftId}`, title: "Type" },
+            ],
+          },
+        });
+      });
+    }
+    return;
+  }
+
+  const undoMatch2 = id ? /^undo_confirm:([0-9a-fA-F-]{36})$/.exec(id) : null;
+  if (undoMatch2) {
+    const entryId = undoMatch2[1] ?? "";
+    // extra confirmation for old/large entries
+    const entry = await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+      return db.queryOne<{ id: string; confirmed_entry_id: string | null; amount_paise: string; confirmed_at: Date }>(
+        sql`SELECT id, confirmed_entry_id, amount_paise, confirmed_at FROM app.entry_drafts WHERE shop_id = ${message.shopId} AND confirmed_entry_id = ${entryId}`,
+      );
+    });
+    if (entry) {
+      const settings = await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+        return db.query<{ undo_extra_confirm_age_ms: number; undo_extra_confirm_amount_paise: string }>(sql`SELECT undo_extra_confirm_age_ms, undo_extra_confirm_amount_paise FROM app.shop_settings WHERE shop_id = ${message.shopId}`);
+      });
+      const ageThreshold = settings[0]?.undo_extra_confirm_age_ms ?? 86400000;
+      const amtThreshold = Number.parseInt(settings[0]?.undo_extra_confirm_amount_paise ?? "1000000", 10);
+      const age = Date.now() - new Date(entry.confirmed_at).getTime();
+      const amt = Number.parseInt(entry.amount_paise, 10);
+      const extra = age > ageThreshold || amt > amtThreshold;
+      if (extra) {
+        const sellerPhone2 = senderPhone(message.body);
+        if (sellerPhone2) {
+          const bidx2 = phoneBlindIndex(sellerPhone2, deps.blindIndexKey);
+          await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+            const enc = encryptField(sellerPhone2, deps.keyRef, 1, { shopId: message.shopId, table: "outbox_events", column: "recipient_phone_enc" });
+            await enqueueOutboundTx(db, {
+              shopId: message.shopId,
+              recipientPhoneBidx: bidx2,
+              recipientPhoneEnc: enc,
+              keyVersion: 1,
+              messageType: "TEXT",
+              payload: {
+                to: sellerPhone2,
+                body: `Undo ${entry.amount_paise} entry? Confirm again.`,
+                buttons: [{ id: `undo_final:${entryId}`, title: "Confirm undo" }],
+              },
+            });
+          });
+        }
+        return;
+      }
+    }
+    await reverseLedgerEntry(message.shopId, entryId, "seller undo");
+    return;
+  }
+
+  const undoFinalMatch = id ? /^undo_final:([0-9a-fA-F-]{36})$/.exec(id) : null;
+  if (undoFinalMatch) {
+    await reverseLedgerEntry(message.shopId, undoFinalMatch[1] ?? "", "seller undo");
+    return;
+  }
+
   const match = id ? /^(confirm|cancel):([0-9a-fA-F-]{36})$/.exec(id) : null;
   if (!match) throw new Error("UNKNOWN_INTERACTIVE_ACTION");
   const action = match[1];
@@ -365,16 +615,41 @@ export async function processNextInboxMessageForShop(
   // Only block when a consent record exists with an outdated version. A shop with no
   // consent record yet is handled by onboarding, not by this gate.
   if (version !== null && needsReconsent(version)) {
-    const already = await reconsentAlreadySentToday(message.shopId);
-    if (!already) await notifySellerOfConsent(message, deps);
+    const declinedRecent = await consentDeclinedRecently(message.shopId);
+    if (!declinedRecent) {
+      const already = await reconsentAlreadySentToday(message.shopId);
+      if (!already) await notifySellerOfConsent(message, deps);
+    }
   }
 
   try {
     await handleMessage(message, deps);
     await markDone(claimed.id);
-    // Release path for the 24-hour window: flush any queued outbound messages now
-    // that the seller has sent a user-initiated message (opens the window).
+    // Pending digest: surface stale queued messages to the seller.
     if (deps.messaging) {
+      try {
+        const sellerPhone = senderPhone(message.body);
+        if (sellerPhone) {
+          const staleRows = await withTenant({ shopId: message.shopId, actorType: "SYSTEM", actorId: "inbound" }, async (db) => {
+            return db.query<{ payload: Record<string, unknown> }>(
+              sql`SELECT payload FROM app.outbox_events
+                   WHERE shop_id = ${message.shopId}
+                     AND state = 'QUEUED'
+                     AND queued_at < now() - interval '24 hours'`,
+            );
+          });
+          if (staleRows.length > 0) {
+            const items = staleRows.map((r) => {
+              const p = r.payload as { body?: string; text?: string };
+              return (p.body ?? p.text ?? "message").slice(0, 60);
+            });
+            await deps.messaging.sendText({ to: sellerPhone, text: `Pending while you were away: ${items.join("; ")}` });
+            await raiseOutboxStale(message.shopId, claimed.id);
+          }
+        }
+      } catch { /* best effort */ }
+      // Release path for the 24-hour window: flush any queued outbound messages now
+      // that the seller has sent a user-initiated message (opens the window).
       try {
         await flushQueuedOutboundForShop(message.shopId, { messaging: deps.messaging, keyRef: deps.keyRef });
       } catch {

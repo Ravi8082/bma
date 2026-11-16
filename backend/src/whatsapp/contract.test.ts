@@ -3,7 +3,7 @@
  * provider, with the Meta Graph API mocked at the HTTP layer.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { randomUUID } from "node:crypto";
+
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMessagingProvider } from "../integrations/messaging/factory";
 import { SimulatorMessagingProvider } from "../integrations/messaging/simulator";

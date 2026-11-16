@@ -15,7 +15,7 @@ export interface ConfirmationDeps {
   keyRef: string;
 }
 
-export type ConfirmStatus = "CONFIRMED" | "ALREADY_CONFIRMED" | "CANCELLED" | "NOT_FOUND";
+export type ConfirmStatus = "CONFIRMED" | "ALREADY_CONFIRMED" | "CANCELLED" | "NOT_FOUND" | "TYPE_UNCLEAR";
 
 export interface ConfirmResult {
   status: ConfirmStatus;
@@ -39,8 +39,11 @@ interface DraftRow {
   direction: string;
   amount_paise: string;
   is_credit_sale: boolean;
+  type_unclear: boolean;
   seller_phone_enc: Buffer;
   seller_phone_bidx: Buffer;
+  customer_phone_enc: Buffer | null;
+  customer_phone_bidx: Buffer | null;
   key_version: number;
   status: string;
   confirmed_entry_id: string | null;
@@ -117,7 +120,8 @@ export async function confirmDraft(
   return withTenant(contextFor(shopId), async (db) => {
     const draft = await db.queryOne<DraftRow>(
       sql`SELECT id, shop_id, wa_message_id, customer_id, customer_name, entry_type, direction,
-                 amount_paise, is_credit_sale, seller_phone_enc, seller_phone_bidx, key_version,
+                 amount_paise, is_credit_sale, type_unclear, seller_phone_enc, seller_phone_bidx,
+                 customer_phone_enc, customer_phone_bidx, key_version,
                  status, confirmed_entry_id
             FROM app.entry_drafts
            WHERE shop_id = ${shopId} AND id = ${draftId}
@@ -128,6 +132,7 @@ export async function confirmDraft(
       return { status: "ALREADY_CONFIRMED", entryId: draft.confirmed_entry_id };
     }
     if (draft.status === "CANCELLED") return { status: "CANCELLED", entryId: null };
+    if (draft.type_unclear) return { status: "TYPE_UNCLEAR", entryId: null };
 
     const idempotencyKey = `draft-confirm:${draftId}`;
     const entryId = randomUUID();
@@ -169,6 +174,26 @@ export async function confirmDraft(
              WHERE shop_id = ${shopId} AND id = ${draft.customer_id}`,
       );
     }
+    // Attach the inline-captured phone to the customer only after confirm, unless it
+    // already belongs to another customer in the shop.
+    if (draft.customer_id && draft.customer_phone_enc && draft.customer_phone_bidx) {
+      const existing = await db.queryOne<{ id: string }>(
+        sql`SELECT id FROM app.customers
+             WHERE shop_id = ${shopId} AND phone_bidx = ${draft.customer_phone_bidx}
+               AND id <> ${draft.customer_id}`,
+      );
+      if (existing) {
+        await sendSellerText(db, draft, "Phone already belongs to another customer; not attached.", deps);
+      } else {
+        await db.execute(
+          sql`UPDATE app.customers
+                 SET phone_enc = ${draft.customer_phone_enc},
+                     phone_bidx = ${draft.customer_phone_bidx},
+                     key_version = ${draft.key_version}
+               WHERE shop_id = ${shopId} AND id = ${draft.customer_id}`,
+        );
+      }
+    }
 
     await sendSellerText(
       db,
@@ -190,7 +215,8 @@ export async function cancelDraft(
   return withTenant(contextFor(shopId), async (db) => {
     const draft = await db.queryOne<DraftRow>(
       sql`SELECT id, shop_id, wa_message_id, customer_id, customer_name, entry_type, direction,
-                 amount_paise, is_credit_sale, seller_phone_enc, seller_phone_bidx, key_version,
+                 amount_paise, is_credit_sale, type_unclear, seller_phone_enc, seller_phone_bidx,
+                 customer_phone_enc, customer_phone_bidx, key_version,
                  status, confirmed_entry_id
             FROM app.entry_drafts
            WHERE shop_id = ${shopId} AND id = ${draftId}

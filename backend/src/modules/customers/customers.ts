@@ -19,7 +19,7 @@ export async function findOrCreateCustomer(
   db: TenantDb,
   shopId: string,
   name: string,
-  blindIndexKey: string,
+  _blindIndexKey: string,
 ): Promise<CustomerMatch> {
   const normalized = normaliseName(name);
   const existing = await db.query<{ id: string }>(

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { redactPhones, normaliseNumberToken, numbersInSource, validateExtracted, StubLlmProvider, LlmExtractionParser } from "./extraction";
-import { deterministicParser } from "./parser";
+import { redactPhones, numbersInSource, validateExtracted, StubLlmProvider, LlmExtractionParser } from "./extraction";
 
 describe("extraction helpers", () => {
   it("redacts phone numbers", () => {

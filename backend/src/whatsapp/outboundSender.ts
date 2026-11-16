@@ -39,7 +39,7 @@ function parsePayload(value: Record<string, unknown>): OutboundPayload {
   };
 }
 
-async function serviceWindowOpen(shopId: string, recipientBidx: Buffer): Promise<boolean> {
+export async function serviceWindowOpen(shopId: string, recipientBidx: Buffer): Promise<boolean> {
   const rows = await queryWithoutTenant<{ count: string }>(
     sql`SELECT COUNT(*) AS count FROM app.inbox_messages
          WHERE shop_id = ${shopId}
@@ -81,19 +81,24 @@ export async function processNextOutboundForShop(
   // and a seller notification; it is not silently dropped.
   const ageMs = Date.now() - message.queuedAt.getTime();
   if (ageMs > 24 * 60 * 60 * 1000) {
-    const reason = "queued longer than 24 hours";
-    const state = await markFailed(shopId, message.id, reason);
-    if (state === "DEAD") {
-      await raiseOutboxStale(shopId, message.id);
-      // notify seller
-      try {
-        if (message.recipientPhoneEnc) {
-          const to = decryptField(message.recipientPhoneEnc, deps.keyRef, { shopId, table: "outbox_events", column: "recipient_phone_enc" });
-          await deps.messaging.sendText({ to, text: "A queued message expired after 24 hours and was not sent." });
-        }
-      } catch { /* best effort */ }
-    }
-    return { processed: true, state, outboxId: message.id };
+    // Do not dead-letter: mark as stale and alert, leave queued for digest on next inbound.
+    await raiseOutboxStale(shopId, message.id);
+    try {
+      if (message.recipientPhoneEnc) {
+        const to = decryptField(message.recipientPhoneEnc, deps.keyRef, { shopId, table: "outbox_events", column: "recipient_phone_enc" });
+        // best-effort alert; digest will also be shown on next inbound.
+        void to;
+      }
+    } catch { /* best effort */ }
+    // Leave the message queued so it is not silently dropped; the digest surfaces it.
+    await withTenant({ shopId, actorType: "SYSTEM", actorId: "outbound" }, async (db) => {
+      await db.execute(
+        sql`UPDATE app.outbox_events
+               SET state = 'QUEUED', next_attempt_at = now() + interval '1 hour', updated_at = now()
+             WHERE id = ${message.id} AND shop_id = ${shopId}`,
+      );
+    });
+    return { processed: true, state: "QUEUED", outboxId: message.id };
   }
 
   // 24-hour service window: if closed, prefer an approved utility template; otherwise

@@ -4,8 +4,7 @@ import { withTenant } from "../../db/tenant";
 import { sql } from "../../db/sql";
 import { randomUUID } from "node:crypto";
 import { findOrCreateCustomer, attachPhone, normaliseName } from "./customers";
-import { encryptField } from "../../crypto/fieldEncryption";
-import { phoneBlindIndex } from "../../crypto/blindIndex";
+
 import { env } from "../../config/env";
 
 usePostgres();

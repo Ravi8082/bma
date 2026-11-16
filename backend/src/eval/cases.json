@@ -7,7 +7,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-1",
@@ -21,7 +22,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-2",
@@ -35,7 +37,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-3",
@@ -49,7 +52,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-4",
@@ -63,7 +67,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-5",
@@ -77,7 +82,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-6",
@@ -91,7 +97,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-7",
@@ -105,7 +112,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-8",
@@ -119,7 +127,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-9",
@@ -133,7 +142,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-10",
@@ -147,7 +157,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-11",
@@ -161,7 +172,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-12",
@@ -175,7 +187,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-13",
@@ -189,7 +202,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-14",
@@ -203,7 +217,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-15",
@@ -217,7 +232,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-16",
@@ -231,7 +247,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-17",
@@ -241,7 +258,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-18",
@@ -255,7 +273,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-19",
@@ -265,7 +284,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-20",
@@ -279,7 +299,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-21",
@@ -293,7 +314,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-22",
@@ -307,7 +329,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-23",
@@ -321,7 +344,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-24",
@@ -335,7 +359,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-25",
@@ -349,7 +374,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-26",
@@ -363,7 +389,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-27",
@@ -377,7 +404,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-28",
@@ -391,7 +419,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-29",
@@ -405,7 +434,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-30",
@@ -419,7 +449,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-31",
@@ -433,7 +464,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-32",
@@ -447,7 +479,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-33",
@@ -461,7 +494,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-34",
@@ -471,7 +505,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-35",
@@ -485,7 +520,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-36",
@@ -499,7 +535,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-37",
@@ -513,7 +550,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-38",
@@ -523,7 +561,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hi-39",
@@ -537,7 +576,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hi-5040",
@@ -547,7 +587,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hi-5041",
@@ -561,7 +602,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hi-5042",
@@ -575,7 +617,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hi-5043",
@@ -589,7 +632,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hi-5044",
@@ -603,7 +647,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hi-5045",
@@ -613,7 +658,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hi-5046",
@@ -623,7 +669,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hi-5047",
@@ -633,7 +680,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-48",
@@ -647,7 +695,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-49",
@@ -661,7 +710,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-50",
@@ -675,7 +725,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-51",
@@ -685,7 +736,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-52",
@@ -699,7 +751,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-53",
@@ -713,7 +766,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-54",
@@ -727,7 +781,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-55",
@@ -741,7 +796,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-56",
@@ -755,7 +811,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-57",
@@ -765,7 +822,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-58",
@@ -779,7 +837,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-59",
@@ -793,7 +852,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-60",
@@ -807,7 +867,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-61",
@@ -821,7 +882,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-62",
@@ -835,7 +897,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-63",
@@ -849,7 +912,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-64",
@@ -863,7 +927,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-65",
@@ -877,7 +942,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-66",
@@ -891,7 +957,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-67",
@@ -905,7 +972,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-68",
@@ -915,7 +983,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-69",
@@ -929,7 +998,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-70",
@@ -943,7 +1013,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-71",
@@ -957,7 +1028,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-72",
@@ -971,7 +1043,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-73",
@@ -985,7 +1058,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-74",
@@ -999,7 +1073,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-75",
@@ -1013,7 +1088,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-76",
@@ -1023,7 +1099,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-77",
@@ -1037,7 +1114,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-78",
@@ -1051,7 +1129,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-79",
@@ -1065,7 +1144,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-80",
@@ -1079,7 +1159,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-81",
@@ -1093,7 +1174,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-82",
@@ -1107,7 +1189,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-83",
@@ -1121,7 +1204,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-84",
@@ -1135,7 +1219,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-85",
@@ -1145,7 +1230,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-86",
@@ -1159,7 +1245,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "en-87",
@@ -1173,7 +1260,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-en-5088",
@@ -1183,7 +1271,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-en-5089",
@@ -1197,7 +1286,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-en-5090",
@@ -1207,7 +1297,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-en-5091",
@@ -1221,7 +1312,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-en-5092",
@@ -1235,7 +1327,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-en-5093",
@@ -1249,7 +1342,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-en-5094",
@@ -1263,7 +1357,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-en-5095",
@@ -1273,7 +1368,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-96",
@@ -1287,7 +1383,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-97",
@@ -1301,7 +1398,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-98",
@@ -1315,7 +1413,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-99",
@@ -1329,7 +1428,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-100",
@@ -1343,7 +1443,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-101",
@@ -1357,7 +1458,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-102",
@@ -1367,7 +1469,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-103",
@@ -1381,7 +1484,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-104",
@@ -1395,7 +1499,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-105",
@@ -1409,7 +1514,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-106",
@@ -1423,7 +1529,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-107",
@@ -1437,7 +1544,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-108",
@@ -1451,7 +1559,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-109",
@@ -1465,7 +1574,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-110",
@@ -1479,7 +1589,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-111",
@@ -1493,7 +1604,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-112",
@@ -1507,7 +1619,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-113",
@@ -1521,7 +1634,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-114",
@@ -1531,7 +1645,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-115",
@@ -1545,7 +1660,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-116",
@@ -1559,7 +1675,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-117",
@@ -1573,7 +1690,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-118",
@@ -1587,7 +1705,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-119",
@@ -1597,7 +1716,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-120",
@@ -1611,7 +1731,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-121",
@@ -1625,7 +1746,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-122",
@@ -1639,7 +1761,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-123",
@@ -1653,7 +1776,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-124",
@@ -1667,7 +1791,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-125",
@@ -1681,7 +1806,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-126",
@@ -1695,7 +1821,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-127",
@@ -1709,7 +1836,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-128",
@@ -1723,7 +1851,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-129",
@@ -1737,7 +1866,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-130",
@@ -1751,7 +1881,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-131",
@@ -1765,7 +1896,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-132",
@@ -1779,7 +1911,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-133",
@@ -1789,7 +1922,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-134",
@@ -1803,7 +1937,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hinglish-135",
@@ -1817,7 +1952,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": false,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hinglish-5136",
@@ -1827,7 +1963,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hinglish-5137",
@@ -1837,7 +1974,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hinglish-5138",
@@ -1847,7 +1985,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hinglish-5139",
@@ -1861,7 +2000,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hinglish-5140",
@@ -1871,7 +2011,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": true
+    "expectClarification": true,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hinglish-5141",
@@ -1885,7 +2026,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hinglish-5142",
@@ -1899,7 +2041,8 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   },
   {
     "id": "hard-hinglish-5143",
@@ -1913,6 +2056,7 @@
     "holdout": false,
     "synthetic": true,
     "hard": true,
-    "expectClarification": false
+    "expectClarification": false,
+    "labelSource": "parser-derived"
   }
 ]

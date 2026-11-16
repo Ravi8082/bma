@@ -5,7 +5,7 @@
  * receives customer lists, phone numbers or ledger data, and never calls tools. Its output
  * is validated against a strict schema; any failure falls back to the deterministic parser.
  */
-import type { EntryParser, ParsedEntry, ParseResult } from "./parser";
+import type { EntryParser, ParseResult } from "./parser";
 import { deterministicParser } from "./parser";
 import { recordCost } from "../costLog";
 
@@ -149,7 +149,7 @@ export class LlmExtractionParser implements EntryParser {
       return deterministicParser.parse(text, options);
     }
 
-    if (extracted.amountPaise > max) return { kind: "NOT_AN_ENTRY" };
+    if (extracted.amountPaise >= max) return { kind: "NEEDS_CLARIFICATION", reason: "amount_above_ceiling", options: ["split_payment", "cancel"] };
 
     const direction: "DEBIT" | "CREDIT" =
       extracted.entryType === "PAYMENT_IN" || extracted.entryType === "PAYMENT_OUT" ? "CREDIT" : "DEBIT";
@@ -187,3 +187,4 @@ export class StubLlmProvider implements LlmProvider {
     return { raw, promptTokens: 0, completionTokens: 0 };
   }
 }
+

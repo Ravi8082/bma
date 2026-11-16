@@ -1,6 +1,8 @@
 /**
  * Deterministic text parser for the Phase 4 text slice.
  */
+import { normalisePhone } from "../crypto/phone";
+
 export type DraftEntryType = "SALE" | "PAYMENT_IN" | "PURCHASE" | "PAYMENT_OUT" | "EXPENSE";
 
 export interface ParsedEntry {
@@ -10,10 +12,13 @@ export interface ParsedEntry {
   direction: "DEBIT" | "CREDIT";
   isCreditSale: boolean;
   typeUnclear: boolean;
+  /** Seller phone captured inline in the message, normalised to E.164. */
+  sellerPhone?: string | null;
 }
 
 export type ParseResult =
   | { kind: "PARSED"; entry: ParsedEntry }
+  | { kind: "MULTI"; entries: ParsedEntry[] }
   | { kind: "NEEDS_CLARIFICATION"; reason: string; options: string[] }
   | { kind: "NOT_AN_ENTRY" };
 
@@ -23,19 +28,42 @@ export interface EntryParser {
   parseAsync?(text: string, options?: { maxAmountPaise?: number }): Promise<ParseResult>;
 }
 
-const MONEY_TOKEN = /^(?:₹|rs\.?|inr)?\s*(\d{1,9})(?:\.(\d{1,2}))?\/?-?$/i;
+const MONEY_PREFIX = /^(?:₹|rs\.?|inr)/i;
 const PHONE_LIKE = /^\d{10,}$/;
 const PAYMENT_WORDS = /(payment|jama|received from|se mila|se mile|paid|mile)/i;
 
-const CASH_WORDS = /(cash|nakad|received|mila)/i;
 const WORD_TO_NUM: Record<string, number> = { ek: 1, do: 2, teen: 3, char: 4, paanch: 5, panch: 5, chhe: 6, saat: 7, aath: 8, nau: 9, das: 10 };
 const NUMBER_WORDS: Record<string, number> = { dedh: 1.5, paune: 0.75 };
+const RETURN_WORD_RE = /\b(wapas|vaapas|parichay|parat|repay|return|refund)\b/i;
 
-function toPaise(whole: string, fraction: string | undefined): number {
-  const wholePart = Number.parseInt(whole, 10);
-  if (!Number.isSafeInteger(wholePart) || wholePart < 0) throw new Error("invalid rupee amount");
-  const paisePart = fraction ? Number.parseInt(fraction.padEnd(2, "0"), 10) : 0;
-  return wholePart * 100 + paisePart;
+/** Parse a money token that may carry an optional currency prefix and digit grouping. */
+function parseMoneyToken(token: string): number | null {
+  let t = token.trim();
+  const prefix = MONEY_PREFIX.exec(t);
+  if (prefix) t = t.slice(prefix[0].length).trim();
+  t = t.replace(/[\s/-]*$/, "");
+  const dot = t.indexOf(".");
+  const intPart = dot >= 0 ? t.slice(0, dot) : t;
+  const fracPart = dot >= 0 ? t.slice(dot + 1) : "";
+  const intClean = intPart.replace(/,/g, "");
+  const fracClean = fracPart.replace(/,/g, "");
+  if (!/^\d+$/.test(intClean)) return null;
+  if (dot >= 0 && !/^\d{1,2}$/.test(fracClean)) return null;
+  const whole = Number.parseInt(intClean, 10);
+  const frac = fracClean ? Number.parseInt(fracClean.padEnd(2, "0"), 10) : 0;
+  const paise = whole * 100 + frac;
+  return paise > 0 ? paise : null;
+}
+
+function isMoneyToken(token: string): boolean {
+  return parseMoneyToken(token) !== null;
+}
+
+function hasReturnWord(text: string): boolean {
+  if (RETURN_WORD_RE.test(text)) return true;
+  const lower = text.toLowerCase();
+  const devanagari = ["वापस", "वापसी", "रिफंड", "परत", "परतणे"];
+  return devanagari.some((w) => lower.includes(w));
 }
 
 function cleanName(value: string): string {
@@ -60,6 +88,62 @@ export const deterministicParser: EntryParser = {
     if (typeof text !== "string") return { kind: "NOT_AN_ENTRY" };
     const trimmed = text.trim();
     if (trimmed.length === 0 || trimmed.length > 1000) return { kind: "NOT_AN_ENTRY" };
+    if (hasReturnWord(trimmed)) {
+      return { kind: "NEEDS_CLARIFICATION", reason: "return_or_repay", options: ["goods_returned", "money_returned", "cancel"] };
+    }
+
+    // Conjunction of multiple people with a single amount -> ask how to split.
+    const CONJ_RE = /\b(aur|and)\b/i;
+    const devanagariConj = ["और", "आणि", "aur"];
+    const hasConjunction = CONJ_RE.test(trimmed) || devanagariConj.some((w) => trimmed.includes(w));
+    if (hasConjunction) {
+      // ensure at least two name-like tokens
+      const ascii2 = toAsciiDigits(trimmed);
+      const toks2 = ascii2.split(/\s+/);
+      const moneyIdx = toks2.findIndex((t) => parseMoneyToken(t) !== null);
+      const nameToks = (moneyIdx >= 0 ? toks2.slice(0, moneyIdx) : toks2).filter(
+        (t) => !/^(aur|and|ko|ne|ka|ki|ke|to|credit|paid|dedh|paune|sau|hazaar|hazar|teen|ek|do)$/i.test(t) &&
+          !parseMoneyToken(t) && !/^\d{10,}$/.test(t.replace(/\D/g, "")),
+      );
+      if (nameToks.length >= 2) {
+        const m = moneyIdx >= 0 ? parseMoneyToken(toks2[moneyIdx]!) : null;
+        const amt = m ? m / 100 : 0;
+        return {
+          kind: "NEEDS_CLARIFICATION",
+          reason: "shared_amount",
+          options: [`${amt} each`, `${amt} total split`, "Cancel"],
+        };
+      }
+    }
+
+    // Multiple independent entries in one message -> MULTI with one draft per entry.
+    const segments = trimmed.split(/[\n\r]+|\s+aur\s+|,\s*(?=\D)/i).map((s) => s.trim()).filter((s) => s.length > 0);
+    if (segments.length > 1) {
+      const entries: ParsedEntry[] = [];
+      for (const seg of segments) {
+        const r = deterministicParser.parse(seg, options);
+        if (r.kind === "PARSED") entries.push(r.entry);
+      }
+      if (entries.length > 1) {
+        const first = entries[0]!;
+        const sameCustomer = entries.every((e) => e.customerName.toLowerCase() === first.customerName.toLowerCase());
+        if (sameCustomer) {
+          const amounts = entries.map((e) => e.amountPaise);
+          const sale = amounts[0]! / 100;
+          const received = amounts[1]! / 100;
+          return {
+            kind: "NEEDS_CLARIFICATION",
+            reason: "multiple_amounts_same_customer",
+            options: [
+              `Sale ${sale}, received ${received}, balance ${sale - received}`,
+              `Sale ${received} only`,
+              "Cancel",
+            ],
+          };
+        }
+        return { kind: "MULTI", entries };
+      }
+    }
 
     const ascii = toAsciiDigits(trimmed);
     const tokens = ascii.split(/\s+/);
@@ -87,13 +171,8 @@ export const deterministicParser: EntryParser = {
         const val = Math.round(nw * mult * 100);
         if (val > 0) return { value: val, end };
       }
-      const m = MONEY_TOKEN.exec(tokens[i] ?? "");
-      if (m) {
-        try {
-          const v = toPaise(m[1] ?? "0", m[2]);
-          if (v > 0) return { value: v, end: i };
-        } catch { return null; }
-      }
+      const v = parseMoneyToken(tokens[i] ?? "");
+      if (v !== null) return { value: v, end: i };
       return null;
     }
 
@@ -114,31 +193,49 @@ export const deterministicParser: EntryParser = {
       return { kind: "NOT_AN_ENTRY" };
     }
     const max = options.maxAmountPaise ?? 100_000_000_000;
-    if (amountPaise > max) return { kind: "NOT_AN_ENTRY" };
+    if (amountPaise >= max) {
+      return { kind: "NEEDS_CLARIFICATION", reason: "amount_above_ceiling", options: ["split_payment", "cancel"] };
+    }
 
     // Multiple distinct digit numbers -> clarification
-    const digitTokens = tokens.filter((t) => MONEY_TOKEN.test(t));
+    const digitTokens = tokens.filter((t) => isMoneyToken(t) && !PHONE_LIKE.test(t.replace(/\D/g, "")));
     const distinctDigits = new Set(digitTokens);
     if (digitTokens.length > 1 && distinctDigits.size > 1) {
-      return { kind: "NEEDS_CLARIFICATION", reason: "multiple_amounts", options: ["use_first", "cancel"] };
+      const amounts = [...distinctDigits].map((d) => parseMoneyToken(d)!).filter((a) => a > 0);
+      if (amounts.length >= 2) {
+        const sale = amounts[0]! / 100;
+        const received = amounts[1]! / 100;
+        return {
+          kind: "NEEDS_CLARIFICATION",
+          reason: "multiple_amounts_same_customer",
+          options: [
+            `Sale ${sale}, received ${received}, balance ${sale - received}`,
+            `Sale ${received} only`,
+            "Cancel",
+          ],
+        };
+      }
+      return { kind: "NEEDS_CLARIFICATION", reason: "multiple_amounts", options: ["cancel"] };
     }
 
     // Name extraction
     let nameTokens: string[];
     const toIndex = tokens.findIndex((t, i) => i > amountIndex && /^to$/i.test(t));
     if (toIndex >= 0) {
-      nameTokens = tokens.slice(toIndex + 1).filter((token) => !MONEY_TOKEN.test(token) && !PHONE_LIKE.test(token.replace(/\D/g, "")));
+      nameTokens = tokens.slice(toIndex + 1).filter((token) => !isMoneyToken(token) && !PHONE_LIKE.test(token.replace(/\D/g, "")));
     } else {
       nameTokens = tokens
         .slice(0, amountIndex)
         .filter(
           (token) =>
-            !MONEY_TOKEN.test(token) &&
+            !isMoneyToken(token) &&
             !PHONE_LIKE.test(token.replace(/\D/g, "")) &&
             !/^(ko|ne|ka|ki|ke|to|credit|paid|dedh|paune|sau|hazaar|hazar|teen)$/i.test(token),
         );
     }
     nameTokens = nameTokens.filter((t) => !/^paid$/i.test(t) && !PHONE_LIKE.test(t.replace(/\D/g, "")));
+    const sellerPhoneToken = tokens.slice(0, amountIndex).find((t) => PHONE_LIKE.test(t.replace(/\D/g, "")));
+    const sellerPhone = sellerPhoneToken ? normalisePhone(sellerPhoneToken) : null;
     // Strip Devanagari case suffixes (रमेशला -> रमेश)
     nameTokens = nameTokens.map((t) => t.replace(/(ला|को|ने)$/g, ""));
     const customerName = cleanName(nameTokens.join(" "));
@@ -154,7 +251,6 @@ export const deterministicParser: EntryParser = {
       return { kind: "NEEDS_CLARIFICATION", reason: "ambiguous_customer", options: [customerName, trailingName] };
     }
 
-    const remainder = tokens.slice(amountIndex + 1).join(" ");
     const hasNe = /\bne\b/i.test(trimmed) || /ने/.test(trimmed);
     const hasKo = /\bko\b/i.test(trimmed) || /को/.test(trimmed) || /ला/.test(trimmed);
     const hasDiya = /\bdiya\b|\bdiye\b/i.test(trimmed) || /दिले|दिला|दिया/.test(trimmed);
@@ -183,6 +279,7 @@ export const deterministicParser: EntryParser = {
           direction: "CREDIT",
           isCreditSale: false,
           typeUnclear: false,
+          sellerPhone,
         },
       };
     }
@@ -196,7 +293,9 @@ export const deterministicParser: EntryParser = {
         direction: "DEBIT",
         isCreditSale: hasUdhaar ? true : !hasCash,
         typeUnclear,
+        sellerPhone,
       },
     };
   },
 };
+

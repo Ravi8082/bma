@@ -1,4 +1,4 @@
-import { randomInt, randomUUID } from "node:crypto";
+import { createHmac, randomInt, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../app";
 import { env } from "../../config/env";
@@ -40,7 +40,6 @@ async function seedSeller(phone: string): Promise<string> {
 }
 
 function sign(raw: string): string {
-  const { createHmac } = require("node:crypto");
   return `sha256=${createHmac("sha256", APP_SECRET).update(raw).digest("hex")}`;
 }
 
@@ -73,6 +72,48 @@ describe("4a-2 item 1: consent wiring", () => {
     await processNextInboxMessageForShop(shopId, deps);
     const queued2 = await withTenant({ shopId, actorType: "SYSTEM", actorId: "test" }, async (db) => db.query<{ count: string }>(sql`SELECT COUNT(*) AS count FROM app.outbox_events WHERE shop_id = ${shopId} AND payload->>'text' ILIKE '%re-accept the updated privacy terms%'`));
     expect(Number(queued2[0]?.count ?? "0")).toBe(1);
+  });
+});
+
+describe("consent DECLINED state and 30-day suppress", () => {
+  it("records declined (not privacy-v1) on consent:no and suppresses re-ask for 30 days", async () => {
+    const phone = uniqueSellerPhone();
+    const shopId = await seedSeller(phone);
+    const app = createApp({ webhook: { appSecret: APP_SECRET, verifyToken: VERIFY_TOKEN } });
+    const waId = `wamid.${randomUUID()}`;
+    const payload = { object: "whatsapp_business_account", entry: [{ id: "1", changes: [{ field: "messages", value: { messaging_product: "whatsapp", messages: [{ id: waId, from: phone.replace(/^\\+/, ""), timestamp: String(Math.floor(Date.now() / 1000)), type: "interactive", interactive: { type: "button_reply", button_reply: { id: "consent:no", title: "No" } } }] } }] }] };
+    const raw = JSON.stringify(payload);
+    const res = await request(app).post("/webhooks/whatsapp").set("content-type", "application/json").set("x-hub-signature-256", sign(raw)).send(raw);
+    expect(res.status).toBe(200);
+    const r = await processNextInboxMessageForShop(shopId, deps);
+    expect(r.outcome).toBe("DONE");
+    const version = await (await import("../../modules/onboarding/consent")).getLatestConsentVersion(shopId);
+    expect(version).toBe("declined");
+    const { consentDeclinedRecently } = await import("../../modules/onboarding/consent");
+    expect(await consentDeclinedRecently(shopId)).toBe(true);
+  });
+});
+
+describe("consent v2 -> v3 re-consent", () => {
+  it("seller on privacy-v2 is asked to re-consent and entries are still processed", async () => {
+    const phone = uniqueSellerPhone();
+    const shopId = await seedSeller(phone);
+    // seedSeller seeds privacy-v1; append a v2 record so it is the latest
+    const userId2 = (await withTenant({ shopId, actorType: "SYSTEM", actorId: "test" }, async (db) => db.query<{ id: string }>(sql`SELECT id FROM app.users WHERE shop_id = ${shopId} LIMIT 1`)))[0]!.id;
+    await withTenant({ shopId, actorType: "SYSTEM", actorId: "test" }, async (db) => {
+      await db.execute(sql`INSERT INTO app.consent_records (shop_id, user_id, purpose, granted, policy_version, method) VALUES (${shopId}, ${userId2}, 'BOOKKEEPING', true, 'privacy-v2', 'WHATSAPP')`);
+    });
+    const app = createApp({ webhook: { appSecret: APP_SECRET, verifyToken: VERIFY_TOKEN } });
+    const waId = `wamid.${randomUUID()}`;
+    const payload = { object: "whatsapp_business_account", entry: [{ id: "1", changes: [{ field: "messages", value: { messaging_product: "whatsapp", messages: [{ id: waId, from: phone.replace(/^\\+/, ""), timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: "Ramesh 300 udhaar" } }] } }] }] };
+    const raw = JSON.stringify(payload);
+    await request(app).post("/webhooks/whatsapp").set("content-type", "application/json").set("x-hub-signature-256", sign(raw)).send(raw);
+    const r = await processNextInboxMessageForShop(shopId, deps);
+    expect(r.outcome).toBe("DONE");
+    const d = await withTenant({ shopId, actorType: "SYSTEM", actorId: "test" }, async (db) => db.query<{ count: string }>(sql`SELECT COUNT(*) AS count FROM app.entry_drafts WHERE shop_id = ${shopId}`));
+    expect(Number(d[0]?.count ?? "0")).toBe(1);
+    const queued = await withTenant({ shopId, actorType: "SYSTEM", actorId: "test" }, async (db) => db.query<{ payload: Record<string, unknown> }>(sql`SELECT payload FROM app.outbox_events WHERE shop_id = ${shopId}`));
+    expect(queued.some((row) => JSON.stringify(row.payload).includes("re-accept the updated privacy terms"))).toBe(true);
   });
 });
 

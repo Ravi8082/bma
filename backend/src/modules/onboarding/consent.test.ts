@@ -16,6 +16,6 @@ describe("consent versioning", () => {
   });
 
   it("bumps the version to privacy-v2", () => {
-    expect(CURRENT_CONSENT_VERSION).toBe("privacy-v2");
+    expect(CURRENT_CONSENT_VERSION).toBe("privacy-v3");
   });
 });

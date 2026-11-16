@@ -63,6 +63,8 @@ const envSchema = z
     DEFAULT_TIMEZONE: z.string().default("Asia/Kolkata"),
     DRAFT_TTL_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
     MAX_ENTRY_PAISE: z.coerce.number().int().positive().default(100_000_000_000),
+    UNDO_EXTRA_CONFIRM_AGE_MS: z.coerce.number().int().positive().default(86_400_000),
+    UNDO_EXTRA_CONFIRM_AMOUNT_PAISE: z.coerce.number().int().positive().default(1_000_000),
 
     LOG_LEVEL: z
       .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])

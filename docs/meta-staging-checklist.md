@@ -63,6 +63,13 @@ Do NOT use production credentials.
 - [ ] 100+ queued messages for one shop → new messages delayed, not dropped
 - [ ] 10,000+ queued globally → alert raised, graceful degradation
 
+## Edit flow (new)
+- [ ] Tap Edit on a draft -> "What to change? Name / Amount / Type" buttons appear
+- [ ] Tap Edit -> Name, send new name -> draft updated, confirmation re-sent
+- [ ] Tap Edit -> Amount, send "abc" -> rejected, draft unchanged
+- [ ] Tap Edit -> Type, send "credit" -> is_credit_sale updated
+- [ ] Tap Edit on a confirmed draft -> rejected
+
 ## Sign-off
 - [ ] All items above verified by: _______________
 - [ ] Date: _______________

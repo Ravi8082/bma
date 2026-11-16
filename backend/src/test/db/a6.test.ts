@@ -1,4 +1,4 @@
-import { randomInt, randomUUID } from "node:crypto";
+import { createHmac, randomInt, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import request from "supertest";
 import { createApp } from "../../app";
@@ -10,9 +10,9 @@ import { encryptField } from "../../crypto/fieldEncryption";
 import { phoneBlindIndex } from "../../crypto/blindIndex";
 import { SimulatorMessagingProvider } from "../../integrations/messaging/simulator";
 import { SimulatorStore } from "../../simulator/store";
-import { processNextInboxMessageForShop } from "../../whatsapp/inboundRouter";
+import { processNextInboxMessageForShop, type InboundDeps } from "../../whatsapp/inboundRouter";
 import { deterministicParser } from "../../whatsapp/parser";
-import { LlmExtractionParser } from "../../whatsapp/extraction";
+import { LlmExtractionParser, type LlmProvider } from "../../whatsapp/extraction";
 import { usePostgres } from "../helpers/postgres";
 
 usePostgres();
@@ -38,7 +38,6 @@ async function seedSeller(phone: string): Promise<string> {
 }
 
 function sign(raw: string): string {
-  const { createHmac } = require("node:crypto");
   return `sha256=${createHmac("sha256", APP_SECRET).update(raw).digest("hex")}`;
 }
 
@@ -78,9 +77,9 @@ describe("A6: no DB transaction open during LLM call", () => {
     }
 
     const provider = new CheckingProvider();
-    const parser = new LlmExtractionParser(provider as any, shopId, { isOpen: () => false, recordFailure: () => {}, recordSuccess: () => {} }, 1000, { callsToday: 0 });
+    const parser = new LlmExtractionParser(provider as unknown as LlmProvider, shopId, { isOpen: () => false, recordFailure: () => {}, recordSuccess: () => {} }, 1000, { callsToday: 0 });
     const deps = { parser, keyRef: env.FIELD_ENCRYPTION_KEY_REF, blindIndexKey: env.PHONE_BLIND_INDEX_KEY, messaging: new SimulatorMessagingProvider(store) };
-    const result = await processNextInboxMessageForShop(shopId, deps as any);
+    const result = await processNextInboxMessageForShop(shopId, deps as unknown as InboundDeps);
     expect(result.outcome).toBe("DONE");
   });
 });

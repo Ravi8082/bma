@@ -87,7 +87,7 @@ function printReport(label: string, cases: Case[]): void {
   // Show up to 5 examples per non-zero failing category.
   const categories: Outcome[] = ["wrong_customer", "wrong_type", "wrong_amount_no_clarification", "other", "extraction_failed"];
   for (const cat of categories) {
-    const fails = results.filter((r) => r.outcome === cat).slice(0, 5);
+    const fails = results.filter((r) => r.outcome === cat);
     if (fails.length === 0) continue;
     console.log(`-- ${cat} (showing ${fails.length}) --`);
     for (const f of fails) {
@@ -107,12 +107,26 @@ export function runClassifierSelfTest(): void {
     { id: "self-1", lang: "en", text: "Ramesh paune teen sau udhaar", expected: { customerName: "Ramesh", amountPaise: 27500, entryType: "SALE" }, holdout: true, synthetic: true, hard: true, expectClarification: false },
     { id: "self-2", lang: "en", text: "Ramesh ne 1234 diya", expected: { customerName: "Ramesh", amountPaise: 123400, entryType: "PAYMENT_IN" }, holdout: true, synthetic: true, hard: true, expectClarification: false },
     { id: "self-3", lang: "en", text: "Ramesh 300 udhaar", expected: { customerName: "Ramesh", amountPaise: 30000, entryType: "SALE" }, holdout: true, synthetic: true, hard: true, expectClarification: false },
+    { id: "self-4", lang: "en", text: "Ramesh dedh sau udhaar", expected: { customerName: "Ramesh", amountPaise: 15000, entryType: "SALE" }, holdout: true, synthetic: true, hard: true, expectClarification: false },
+    { id: "self-5", lang: "en", text: "Meena 150 cash", expected: { customerName: "Meena", amountPaise: 15000, entryType: "SALE" }, holdout: true, synthetic: true, hard: true, expectClarification: false },
+    { id: "self-6", lang: "en", text: "Ramesh 1,50,000 udhaar", expected: { customerName: "Ramesh", amountPaise: 15000000, entryType: "SALE" }, holdout: true, synthetic: true, hard: true, expectClarification: false },
+    { id: "self-7", lang: "en", text: "Ramesh 50 wapas aaye", expected: null, holdout: true, synthetic: true, hard: true, expectClarification: true },
+    { id: "self-8", lang: "en", text: "Ramesh 9876543210 300 udhaar", expected: { customerName: "Ramesh", amountPaise: 30000, entryType: "SALE" }, holdout: true, synthetic: true, hard: true, expectClarification: false },
+    { id: "self-9", lang: "en", text: "Ramesh ko 500 ka flower diya, 200 mile", expected: { customerName: "Ramesh", amountPaise: 50000, entryType: "SALE" }, holdout: true, synthetic: true, hard: true, expectClarification: true },
+    { id: "self-10", lang: "en", text: "Ramesh 300 udhaar, Meena 150 cash", expected: null, holdout: true, synthetic: true, hard: true, expectClarification: true },
   ];
   // Deliberately wrong parser outputs the classifier MUST flag.
-  const wrongOutputs: Array<{ caseId: string; parsed: ParsedLike; expectedOutcome: Outcome }> = [
+  const wrongOutputs: Array<{ caseId: string; parsed: ParsedLike | null; expectedOutcome: Outcome }> = [
     { caseId: "self-1", parsed: { customerName: "Ramesh", amountPaise: 75, entryType: "SALE", direction: "DEBIT", isCreditSale: true, typeUnclear: false }, expectedOutcome: "wrong_amount_no_clarification" },
     { caseId: "self-2", parsed: { customerName: "Ramesh", amountPaise: 123400, entryType: "SALE", direction: "DEBIT", isCreditSale: true, typeUnclear: false }, expectedOutcome: "wrong_type" },
     { caseId: "self-3", parsed: { customerName: "Mahesh", amountPaise: 30000, entryType: "SALE", direction: "DEBIT", isCreditSale: true, typeUnclear: false }, expectedOutcome: "wrong_customer" },
+    { caseId: "self-4", parsed: { customerName: "Ramesh", amountPaise: 9999, entryType: "SALE", direction: "DEBIT", isCreditSale: true, typeUnclear: false }, expectedOutcome: "wrong_amount_no_clarification" },
+    { caseId: "self-5", parsed: { customerName: "Mohan", amountPaise: 15000, entryType: "SALE", direction: "DEBIT", isCreditSale: false, typeUnclear: false }, expectedOutcome: "wrong_customer" },
+    { caseId: "self-6", parsed: { customerName: "Ramesh", amountPaise: 999999, entryType: "SALE", direction: "DEBIT", isCreditSale: true, typeUnclear: false }, expectedOutcome: "wrong_amount_no_clarification" },
+    { caseId: "self-8", parsed: { customerName: "Ramesh", amountPaise: 30000, entryType: "PAYMENT_IN", direction: "CREDIT", isCreditSale: false, typeUnclear: false }, expectedOutcome: "wrong_type" },
+    { caseId: "self-9", parsed: { customerName: "Ramesh", amountPaise: 99999, entryType: "SALE", direction: "DEBIT", isCreditSale: true, typeUnclear: false }, expectedOutcome: "wrong_amount_no_clarification" },
+    { caseId: "self-10", parsed: { customerName: "Ramesh", amountPaise: 30000, entryType: "SALE", direction: "DEBIT", isCreditSale: true, typeUnclear: false }, expectedOutcome: "other" },
+    { caseId: "self-7", parsed: null, expectedOutcome: "other" },
   ];
   let failures = 0;
   for (const w of wrongOutputs) {
@@ -135,7 +149,32 @@ function main(): void {
     return;
   }
   const file = process.argv[2] ?? "src/eval/cases.json";
-  const cases = JSON.parse(readFileSync(path.resolve(process.cwd(), file), "utf8")) as Case[];
+  const raw = JSON.parse(readFileSync(path.resolve(process.cwd(), file), "utf8"));
+  // Accept either the canonical Case[] shape or a hand-labelled file of real seller
+  // messages with fields (message|text, customer|customerName, amount|amountPaise, type|entryType).
+  const cases: Case[] = Array.isArray(raw)
+    ? raw.map((r: Record<string, unknown>, i: number) => {
+        const text = String(r.text ?? r.message ?? "");
+        const cust = r.customer ?? r.customerName;
+        const amt = r.amount ?? r.amountPaise;
+        const typ = r.type ?? r.entryType;
+        const expected =
+          (cust === null || cust === undefined) && (amt === null || amt === undefined) && (typ === null || typ === undefined)
+            ? null
+            : { customerName: String(cust ?? ""), amountPaise: Number(amt ?? 0), entryType: String(typ ?? "") };
+        return {
+          id: String(r.id ?? `hand-${i}`),
+          lang: String(r.lang ?? "hi"),
+          text,
+          expected,
+          holdout: true,
+          synthetic: false,
+          hard: true,
+          expectClarification: Boolean(r.expectClarification ?? false),
+          labelSource: "hand-labelled",
+        } as Case;
+      })
+    : raw;
   const synthetic = (cases[0] as { synthetic?: boolean })?.synthetic;
   console.log(`File: ${file}  (synthetic: ${synthetic ?? "unknown"})`);
   console.log("NOTE: stub LLM row removed - it is identical to the deterministic parser.");
