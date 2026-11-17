@@ -1,9 +1,11 @@
 /**
  * Scheduler for the lease sweeper and outbox sender.
  *
- * Safe on multiple instances: a session-level PostgreSQL advisory lock makes exactly one
- * process run a tick at a time. Each item is still claimed with SKIP LOCKED, so a process
- * that stalls cannot block the others after its lock is released.
+ * Safe on multiple instances: one transaction-scoped PostgreSQL advisory lock makes
+ * exactly one process run a tick at a time. A transaction-scoped lock is released by
+ * COMMIT/ROLLBACK and by connection loss, so it also works behind a transaction-mode
+ * pooler where a server connection may be reused between statements. Each item is
+ * still claimed with SKIP LOCKED, so a process that stalls cannot block the others.
  */
 
 import { getPool } from "../config/db";
@@ -14,7 +16,8 @@ import { processNextOutboundForShop, type OutboundDeps } from "./outboundSender"
 
 export type SchedulerDeps = InboundDeps & OutboundDeps;
 
-const SCHEDULER_LOCK_KEY = "918273645";
+/** Exported so the lock test uses the same key as the production tick. */
+export const SCHEDULER_LOCK_KEY = "918273645";
 const MAX_ROUNDS = 50;
 
 let schedulerHandle: ReturnType<typeof setInterval> | null = null;
@@ -30,19 +33,23 @@ export interface TickResult {
 
 export async function runSchedulerTick(deps: SchedulerDeps): Promise<TickResult> {
   const client = await getPool().connect();
-  let acquired = false;
-  let leasesReclaimed = 0;
-  let inboxProcessed = 0;
-  let outboxProcessed = 0;
-  let eveningRuns = 0;
+  let inTransaction = false;
 
   try {
+    await client.query("BEGIN");
+    inTransaction = true;
+    // The tick holds the lock transaction open while it uses other pooled connections.
+    // Do not let a long tick be killed as an idle transaction; the lock disappears with
+    // the connection if the process really dies.
+    await client.query("SET LOCAL idle_in_transaction_session_timeout = 0");
+
     const lock = await client.query<{ acquired: boolean }>(
-      "SELECT pg_try_advisory_lock($1::bigint) AS acquired",
+      "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
       [SCHEDULER_LOCK_KEY],
     );
-    acquired = lock.rows[0]?.acquired === true;
-    if (!acquired) {
+    if (lock.rows[0]?.acquired !== true) {
+      await client.query("ROLLBACK");
+      inTransaction = false;
       return {
         skipped: true,
         inboxProcessed: 0,
@@ -52,12 +59,13 @@ export async function runSchedulerTick(deps: SchedulerDeps): Promise<TickResult>
       };
     }
 
-    leasesReclaimed = await reclaimExpiredLeases();
+    const leasesReclaimed = await reclaimExpiredLeases();
 
     // Queue evening summaries before the outbox drain so a shop whose window is open
     // receives today's summary in this same tick.
-    eveningRuns = (await runEveningTick(deps)).ranShops;
+    const eveningRuns = (await runEveningTick(deps)).ranShops;
 
+    let inboxProcessed = 0;
     for (let round = 0; round < MAX_ROUNDS; round += 1) {
       const shopIds = await listShopIdsWithPendingInbox();
       if (shopIds.length === 0) break;
@@ -72,6 +80,7 @@ export async function runSchedulerTick(deps: SchedulerDeps): Promise<TickResult>
       if (!progressed) break;
     }
 
+    let outboxProcessed = 0;
     for (let round = 0; round < MAX_ROUNDS; round += 1) {
       const shopIds = await listShopIdsWithQueuedOutbox();
       if (shopIds.length === 0) break;
@@ -86,15 +95,19 @@ export async function runSchedulerTick(deps: SchedulerDeps): Promise<TickResult>
       if (!progressed) break;
     }
 
+    await client.query("COMMIT");
+    inTransaction = false;
     return { skipped: false, inboxProcessed, outboxProcessed, leasesReclaimed, eveningRuns };
-  } finally {
-    if (acquired) {
+  } catch (error) {
+    if (inTransaction) {
       try {
-        await client.query("SELECT pg_advisory_unlock($1::bigint)", [SCHEDULER_LOCK_KEY]);
+        await client.query("ROLLBACK");
       } catch {
-        // The connection is about to be released; a failed unlock is not actionable here.
+        // The connection is about to be released; a failed rollback is not actionable.
       }
     }
+    throw error;
+  } finally {
     client.release();
   }
 }

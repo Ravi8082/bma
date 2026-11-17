@@ -6,10 +6,20 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { env } from "../config/env";
 import { decryptField, encryptField } from "../crypto/fieldEncryption";
 import { withTenant, type TenantDb } from "../db/tenant";
 import { sql } from "../db/sql";
 import { enqueueOutboundTx } from "./outbound";
+import {
+  buildReceipt,
+  formatPaise,
+  formatReceiptDate,
+  parseReceiptItems,
+  type ReceiptItem,
+} from "./receipt";
+
+export { formatPaise } from "./receipt";
 
 export interface ConfirmationDeps {
   keyRef: string;
@@ -47,6 +57,7 @@ interface DraftRow {
   key_version: number;
   status: string;
   confirmed_entry_id: string | null;
+  items: unknown;
 }
 
 interface LedgerRow {
@@ -60,15 +71,6 @@ interface LedgerRow {
 
 function contextFor(shopId: string): { shopId: string; actorType: "USER"; actorId: string } {
   return { shopId, actorType: "USER", actorId: "seller" };
-}
-
-/** Integer-only rupee display. No float arithmetic touches a monetary value. */
-export function formatPaise(amountPaise: number | string): string {
-  const value = typeof amountPaise === "string" ? Number.parseInt(amountPaise, 10) : amountPaise;
-  const digits = String(value).padStart(3, "0");
-  const whole = digits.slice(0, -2);
-  const fraction = digits.slice(-2);
-  return fraction === "00" ? `₹${whole}` : `₹${whole}.${fraction}`;
 }
 
 function draftSummary(draft: DraftRow): string {
@@ -122,7 +124,7 @@ export async function confirmDraft(
       sql`SELECT id, shop_id, wa_message_id, customer_id, customer_name, entry_type, direction,
                  amount_paise, is_credit_sale, type_unclear, seller_phone_enc, seller_phone_bidx,
                  customer_phone_enc, customer_phone_bidx, key_version,
-                 status, confirmed_entry_id
+                 status, confirmed_entry_id, items
             FROM app.entry_drafts
            WHERE shop_id = ${shopId} AND id = ${draftId}
            FOR UPDATE`,
@@ -198,11 +200,55 @@ export async function confirmDraft(
     await sendSellerText(
       db,
       draft,
-      `✅ Entry confirmed: ${draftSummary(draft)}. Entry ${finalEntryId.slice(0, 8)}.`,
+      await buildReceiptForDraft(db, shopId, draft, finalEntryId),
       deps,
     );
 
     return { status: "CONFIRMED", entryId: finalEntryId };
+  });
+}
+
+/**
+ * Receipt details are read inside the confirming transaction so the balance and shop
+ * name are consistent with the rows that were just written. The item lines are display
+ * input; totals are integer paise recomputed by {@link lineTotalPaise}.
+ */
+async function buildReceiptForDraft(
+  db: TenantDb,
+  shopId: string,
+  draft: DraftRow,
+  entryId: string,
+): Promise<string> {
+  const shop = await db.queryOne<{ name: string }>(
+    sql`SELECT name FROM app.shops WHERE id = ${shopId}`,
+  );
+  const settings = await db.queryOne<{ timezone: string }>(
+    sql`SELECT timezone FROM app.shop_settings WHERE shop_id = ${shopId}`,
+  );
+  const customer = draft.customer_id
+    ? await db.queryOne<{ balance_paise: string }>(
+        sql`SELECT balance_paise FROM app.customers
+             WHERE shop_id = ${shopId} AND id = ${draft.customer_id}`,
+      )
+    : null;
+
+  const amount = Number.parseInt(draft.amount_paise, 10);
+  const paidPaise =
+    draft.entry_type === "PAYMENT_IN" ||
+    (draft.entry_type === "SALE" && !draft.is_credit_sale)
+      ? amount
+      : 0;
+
+  return buildReceipt({
+    shopName: shop?.name ?? "Your shop",
+    customerName: draft.customer_name,
+    entryType: draft.entry_type,
+    items: parseReceiptItems(draft.items) as ReceiptItem[],
+    totalPaise: amount,
+    paidPaise,
+    balancePaise: customer ? Number.parseInt(customer.balance_paise, 10) : 0,
+    date: formatReceiptDate(new Date(), settings?.timezone ?? env.DEFAULT_TIMEZONE),
+    entryId,
   });
 }
 
@@ -217,7 +263,7 @@ export async function cancelDraft(
       sql`SELECT id, shop_id, wa_message_id, customer_id, customer_name, entry_type, direction,
                  amount_paise, is_credit_sale, type_unclear, seller_phone_enc, seller_phone_bidx,
                  customer_phone_enc, customer_phone_bidx, key_version,
-                 status, confirmed_entry_id
+                 status, confirmed_entry_id, items
             FROM app.entry_drafts
            WHERE shop_id = ${shopId} AND id = ${draftId}
            FOR UPDATE`,

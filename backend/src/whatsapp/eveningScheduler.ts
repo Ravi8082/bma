@@ -154,10 +154,55 @@ export async function queueSummaryTx(
     }),
     keyVersion: 1,
     messageType: "TEXT",
-    payload: { to: recipient.phone, text: summaryText(pending.length, totalPaise) },
+    payload: {
+      to: recipient.phone,
+      text: summaryText(pending.length, totalPaise),
+      kind: "EVENING_SUMMARY",
+      batchId,
+      buttons: [
+        { id: `confirm_all:${batchId}`, title: "Confirm all" },
+        { id: `review:${batchId}`, title: "Review" },
+      ],
+    },
   });
 
   return { queued: true, entries: pending.length, totalPaise, batchId };
+}
+
+/**
+ * Mark summaries queued before `before` as superseded.
+ *
+ * The outbox has no DELETE grant, and deleting history would hide what happened, so
+ * the old row is retired as DEAD with an explicit reason. A fresh summary is queued
+ * by the caller so the seller sees current numbers, not yesterday's totals.
+ */
+export async function supersedeQueuedSummaries(shopId: string, before: Date): Promise<number> {
+  return withTenant({ shopId, actorType: "SYSTEM", actorId: "evening-scheduler" }, async (db) =>
+    db.execute(
+      sql`UPDATE app.outbox_events
+             SET state = 'DEAD', last_error = 'SUPERSEDED', updated_at = now()
+           WHERE shop_id = ${shopId}
+             AND state = 'QUEUED'
+             AND payload->>'kind' = 'EVENING_SUMMARY'
+             AND queued_at < ${before}`,
+    ),
+  );
+}
+
+/** True when a summary is already queued for this inbound cycle (e.g. on-demand "hisaab"). */
+export async function hasQueuedSummarySince(shopId: string, since: Date): Promise<boolean> {
+  return withTenant({ shopId, actorType: "SYSTEM", actorId: "evening-scheduler" }, async (db) => {
+    const row = await db.queryOne<{ present: boolean }>(
+      sql`SELECT EXISTS (
+            SELECT 1 FROM app.outbox_events
+             WHERE shop_id = ${shopId}
+               AND state = 'QUEUED'
+               AND payload->>'kind' = 'EVENING_SUMMARY'
+               AND queued_at >= ${since}
+          ) AS present`,
+    );
+    return row?.present === true;
+  });
 }
 
 class NoOwnerError extends Error {
@@ -222,9 +267,10 @@ export async function runEveningForShop(
 /**
  * Tick every shop whose local clock has reached its configured evening time.
  *
- * `shopIds` narrows the candidate list (used by tests and by an operator backfill); the
- * default is every shop known to the platform queue. Settings are always read per shop
- * under tenant context, so this never reads another shop's rows.
+ * With no `shopIds` the due set comes from `app.list_due_shop_ids(now)`, a reviewed
+ * SECURITY DEFINER function that returns only `shop_id` and needs no tenant context.
+ * Settings are still read per shop under tenant context, so this never reads another
+ * shop's rows. `shopIds` narrows the candidate list for tests and operator backfills.
  */
 export async function runEveningTick(
   deps: EveningDeps,
@@ -239,13 +285,7 @@ export async function runEveningTick(
     noOwnerShops: 0,
   };
 
-  const candidates =
-    shopIds ??
-    (
-      await queryWithoutTenant<{ shop_id: string }>(
-        sql`SELECT DISTINCT shop_id FROM app.inbox_messages`,
-      )
-    ).map((row) => row.shop_id);
+  const candidates = shopIds ?? (await listDueShopIds(now));
 
   for (const shopId of candidates) {
     const settings = await withTenant(
@@ -256,7 +296,9 @@ export async function runEveningTick(
         ),
     );
     if (!settings) continue;
-    if (!isEveningDue(now, settings.timezone, settings.evening_summary_time)) continue;
+    // The SQL function is the source of truth for the platform-wide fan-out. For an
+    // explicit candidate list, apply the same rule in-process.
+    if (shopIds && !isEveningDue(now, settings.timezone, settings.evening_summary_time)) continue;
 
     result.dueShops += 1;
     const localDate = localTimeParts(now, settings.timezone).date;
@@ -268,4 +310,12 @@ export async function runEveningTick(
   }
 
   return result;
+}
+
+/** Due shop identifiers from the no-tenant-context discovery function. */
+export async function listDueShopIds(now: Date): Promise<string[]> {
+  const rows = await queryWithoutTenant<{ shop_id: string }>(
+    sql`SELECT shop_id FROM app.list_due_shop_ids(${now})`,
+  );
+  return rows.map((row) => row.shop_id);
 }

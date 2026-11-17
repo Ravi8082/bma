@@ -54,8 +54,19 @@ const envSchema = z
 
     LLM_PROVIDER: z.enum(["stub", "openai"]).default("stub"),
     LLM_API_KEY: z.string().optional(),
+    /** Conservative per-call paise cost recorded for the free-pilot budget. */
+    LLM_COST_PAISE_PER_CALL: z.coerce.number().int().min(0).default(25),
     STT_PROVIDER: z.enum(["stub", "whisper"]).default("stub"),
     STT_API_KEY: z.string().optional(),
+
+    /** Free-pilot ceilings. Never converted into a payment request. */
+    PILOT_DAILY_CAP_PAISE: z.coerce.number().int().positive().default(5_000),
+    PILOT_MONTHLY_CAP_PAISE: z.coerce.number().int().positive().default(50_000),
+
+    /** Local web chat test channel. Off in production unless explicitly enabled. */
+    TEST_CHANNEL: z.preprocess(emptyToUndefined, booleanString.default("false")),
+    TEST_CHANNEL_ADMIN_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
+    TEST_CHANNEL_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(600).default(20),
 
     STORAGE_PROVIDER: z.enum(["local", "s3"]).default("local"),
     STORAGE_LOCAL_DIR: z.string().default("./.data/media"),
@@ -141,6 +152,13 @@ const envSchema = z
         code: z.ZodIssueCode.custom,
         path: ["FIELD_ENCRYPTION_KEY_REF"],
         message: "FIELD_ENCRYPTION_KEY_REF must be a KMS key reference in production, not the default local key",
+      });
+    }
+    if (value.TEST_CHANNEL && (!value.TEST_CHANNEL_ADMIN_TOKEN || value.TEST_CHANNEL_ADMIN_TOKEN.length < 24)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["TEST_CHANNEL_ADMIN_TOKEN"],
+        message: "TEST_CHANNEL requires TEST_CHANNEL_ADMIN_TOKEN of at least 24 characters in production",
       });
     }
     if (!value.WHATSAPP_APP_SECRET || !value.WHATSAPP_ACCESS_TOKEN || !value.WHATSAPP_PHONE_NUMBER_ID) {

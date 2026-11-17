@@ -26,6 +26,7 @@ export interface InboxMessage {
   status: string;
   attemptCount: number;
   lastError: string | null;
+  receivedAt: Date;
 }
 
 interface InboxRow {
@@ -37,6 +38,7 @@ interface InboxRow {
   status: string;
   attempt_count: number;
   last_error: string | null;
+  received_at: Date;
 }
 
 const MAX_ATTEMPTS = 3;
@@ -108,7 +110,8 @@ export async function claimNextGlobal(): Promise<ClaimedMessage | null> {
 /** Read the persisted raw message after the claim transaction has committed. */
 export async function getInboxMessage(messageId: string): Promise<InboxMessage | null> {
   const rows = await queryWithoutTenant<InboxRow>(
-    sql`SELECT id, shop_id, wa_message_id, message_type, body, status, attempt_count, last_error
+    sql`SELECT id, shop_id, wa_message_id, message_type, body, status, attempt_count, last_error,
+               received_at
           FROM app.inbox_messages
          WHERE id = ${messageId}`,
   );
@@ -123,6 +126,7 @@ export async function getInboxMessage(messageId: string): Promise<InboxMessage |
     status: row.status,
     attemptCount: row.attempt_count,
     lastError: row.last_error,
+    receivedAt: row.received_at,
   };
 }
 

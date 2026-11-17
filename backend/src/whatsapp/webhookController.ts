@@ -111,6 +111,83 @@ function extractMessages(payload: WhatsAppWebhookPayload): Array<{
   return messages;
 }
 
+export interface InboundMessageToPersist {
+  waMessageId: string;
+  from: string;
+  timestamp: string;
+  type: string;
+  body: Record<string, unknown>;
+  /** Webhook passes the hash of the raw request body; the test channel hashes the message. */
+  bodyHash?: Buffer;
+}
+
+export interface PersistedInbound {
+  shopId: string;
+  persisted: boolean;
+}
+
+/**
+ * Persist one inbound message into the platform queue.
+ *
+ * This is the single persist-before-acknowledge path shared by the Meta webhook and the
+ * local web chat test channel. It resolves the shop from the sender's phone blind index,
+ * serializes inserts per seller, and writes one arrival sequence value. A caller must run
+ * it inside a transaction and may only acknowledge after that transaction commits.
+ */
+export async function persistInboundMessage(
+  client: ClientBase,
+  message: InboundMessageToPersist,
+): Promise<PersistedInbound | null> {
+  let shopId: string | null = null;
+  let fromBidx: Buffer | null = null;
+  try {
+    const normalised = normalisePhone(message.from);
+    fromBidx = phoneBlindIndex(normalised, env.PHONE_BLIND_INDEX_KEY);
+    const shop = await client.query("SELECT shop_id FROM app.resolve_seller_by_phone($1)", [fromBidx]);
+    shopId = (shop.rows[0] as { shop_id?: string } | undefined)?.shop_id ?? null;
+  } catch {
+    return null;
+  }
+  if (!shopId || !fromBidx) return null;
+
+  // Serialize inserts per seller. The transaction-scoped lock is held until COMMIT, so
+  // a message with a later arrival sequence can never commit before an earlier one.
+  await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [sellerAdvisoryKey(shopId)]);
+
+  // One sequence value per persisted message. A batch-wide base + index would collide
+  // with a concurrent delivery and make per-seller ordering ambiguous.
+  const seq = await client.query<{ nextval: string }>(
+    "SELECT nextval('app.inbox_arrival_seq') AS nextval",
+  );
+  const arrivalSeq = seq.rows[0]?.nextval ?? "0";
+
+  const bodyHash =
+    message.bodyHash ?? sha256(Buffer.from(JSON.stringify({ message: message.body }), "utf8"));
+
+  const inserted = await client.query(
+    `INSERT INTO app.inbox_messages
+       (shop_id, wa_message_id, message_type, body, raw_payload, body_hash,
+        from_phone_bidx, arrival_seq, received_at, status)
+     VALUES
+       ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, to_timestamp($9::double precision), 'RECEIVED')
+     ON CONFLICT (shop_id, wa_message_id) DO NOTHING
+     RETURNING id`,
+    [
+      shopId,
+      message.waMessageId,
+      message.type,
+      JSON.stringify(message.body),
+      JSON.stringify({ message: message.body }),
+      bodyHash,
+      fromBidx,
+      arrivalSeq,
+      Number(message.timestamp),
+    ],
+  );
+
+  return { shopId, persisted: (inserted.rowCount ?? 0) > 0 };
+}
+
 function mapStatus(raw: string | undefined): StatusKind | null {
   switch ((raw ?? "").toLowerCase()) {
     case "sent":
@@ -193,56 +270,10 @@ export async function handleWebhookPost(
   try {
     for (const message of messages) {
       await runTransaction(async (client) => {
-        let shopId: string | null = null;
-        let fromBidx: Buffer | null = null;
-        try {
-          const normalised = normalisePhone(message.from);
-          fromBidx = phoneBlindIndex(normalised, env.PHONE_BLIND_INDEX_KEY);
-          const shop = await client.query(
-            "SELECT shop_id FROM app.resolve_seller_by_phone($1)",
-            [fromBidx],
-          );
-          shopId = (shop.rows[0] as { shop_id?: string } | undefined)?.shop_id ?? null;
-        } catch {
-          shopId = null;
-        }
-
-        // Unknown senders belong to onboarding, which is a later phase. Acknowledge so Meta
-        // stops retrying; nothing is written because inbox_messages requires a shop.
-        if (!shopId || !fromBidx) return;
-
-        // Serialize inserts per seller. The transaction-scoped lock is held until COMMIT, so
-        // a message with a later arrival sequence can never commit before an earlier one.
-        // Without this, the claim's `NOT EXISTS earlier arrival_seq` check could see only the
-        // later message and process it first.
-        await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [sellerAdvisoryKey(shopId)]);
-
-        // One sequence value per persisted message. A batch-wide base + index would collide
-        // with a concurrent delivery and make per-seller ordering ambiguous.
-        const seq = await client.query<{ nextval: string }>(
-          "SELECT nextval('app.inbox_arrival_seq') AS nextval",
-        );
-        const arrivalSeq = seq.rows[0]?.nextval ?? "0";
-
-        await client.query(
-          `INSERT INTO app.inbox_messages
-             (shop_id, wa_message_id, message_type, body, raw_payload, body_hash,
-              from_phone_bidx, arrival_seq, received_at, status)
-           VALUES
-             ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, to_timestamp($9::double precision), 'RECEIVED')
-           ON CONFLICT (shop_id, wa_message_id) DO NOTHING`,
-          [
-            shopId,
-            message.waMessageId,
-            message.type,
-            JSON.stringify(message.body),
-            JSON.stringify({ message: message.body }),
-            bodyHash,
-            fromBidx,
-            arrivalSeq,
-            Number(message.timestamp),
-          ],
-        );
+        // Unknown senders belong to onboarding, which is a later phase. The shared
+        // persistence function returns null and writes nothing for them, so Meta stops
+        // retrying without creating an orphan inbox row.
+        await persistInboundMessage(client, { ...message, bodyHash });
       });
     }
 

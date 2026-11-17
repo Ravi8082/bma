@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { withTenant } from "../db/tenant";
 import { sql } from "../db/sql";
+import { formatPaise } from "./receipt";
 import { confirmDraft, type ConfirmResult } from "./confirmation";
 import { serviceWindowOpen } from "./outboundSender";
 
@@ -79,10 +80,10 @@ export async function confirmAllBatch(
 }
 
 /** Paged review of a batch's entries. */
-export async function reviewBatchPage(shopId: string, batchId: string, page: number, pageSize: number): Promise<{ entries: Array<{ id: string; amount_paise: string; type_unclear: boolean; status: string }>; total: number }> {
+export async function reviewBatchPage(shopId: string, batchId: string, page: number, pageSize: number): Promise<{ entries: Array<{ id: string; amount_paise: string; type_unclear: boolean; status: string; customer_name: string; entry_type: string }>; total: number }> {
   return withTenant({ shopId, actorType: "USER", actorId: "seller" }, async (db) => {
-    const rows = await db.query<{ id: string; amount_paise: string; type_unclear: boolean; status: string }>(
-      sql`SELECT id, amount_paise, type_unclear, status FROM app.entry_drafts WHERE shop_id = ${shopId} AND batch_id = ${batchId} ORDER BY created_at LIMIT ${pageSize} OFFSET ${page * pageSize}`,
+    const rows = await db.query<{ id: string; amount_paise: string; type_unclear: boolean; status: string; customer_name: string; entry_type: string }>(
+      sql`SELECT id, amount_paise, type_unclear, status, customer_name, entry_type FROM app.entry_drafts WHERE shop_id = ${shopId} AND batch_id = ${batchId} ORDER BY created_at LIMIT ${pageSize} OFFSET ${page * pageSize}`,
     );
     const cnt = await db.query<{ c: string }>(sql`SELECT COUNT(*)::text AS c FROM app.entry_drafts WHERE shop_id = ${shopId} AND batch_id = ${batchId}`);
     return { entries: rows, total: Number(cnt[0]?.c ?? 0) };
@@ -102,7 +103,7 @@ export async function sendEveningSummary(shopId: string, batchId: string, recipi
   });
   const pending = drafts.filter((d) => d.status === "PENDING");
   const totalPaise = pending.reduce((a, d) => a + Number.parseInt(d.amount_paise, 10), 0);
-  const text = `Evening summary: ${pending.length} entries, total ${totalPaise / 100}.`;
+  const text = `Evening summary: ${pending.length} entries, total ${formatPaise(totalPaise)}.`;
 
   const windowOpen = await serviceWindowOpen(shopId, recipientBidx);
   if (windowOpen) {

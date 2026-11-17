@@ -20,8 +20,13 @@ export class SimulatorMessagingProvider implements MessagingProvider {
 
   constructor(private readonly store: SimulatorStore) {}
 
-  private accept(kind: "TEXT" | "BUTTONS" | "LIST" | "TEMPLATE", body: string, input: { to: string }): SendResult {
-    const stored = this.store.add({ to: input.to, kind, body });
+  private accept(
+    kind: "TEXT" | "BUTTONS" | "LIST" | "TEMPLATE",
+    body: string,
+    input: { to: string },
+    extra: { buttons?: { id: string; title: string }[]; rows?: SendListInput["sections"][number]["rows"] } = {},
+  ): SendResult {
+    const stored = this.store.add({ to: input.to, kind, body, ...extra });
     return { providerMessageId: stored.id, acceptedAt: stored.sentAt };
   }
 
@@ -31,18 +36,19 @@ export class SimulatorMessagingProvider implements MessagingProvider {
 
   async sendButtons(input: SendButtonsInput): Promise<SendResult> {
     const lines = [input.body, ...input.buttons.map((button) => `[${button.title}]`)];
-    return this.accept("BUTTONS", lines.join("\n"), input);
+    return this.accept("BUTTONS", lines.join("\n"), input, { buttons: input.buttons });
   }
 
   async sendList(input: SendListInput): Promise<SendResult> {
     const lines = [input.body];
+    const rows = input.sections.flatMap((section) => section.rows);
     for (const section of input.sections) {
       lines.push(section.title);
       for (const row of section.rows) {
         lines.push(`- ${row.title}${row.description ? `: ${row.description}` : ""}`);
       }
     }
-    return this.accept("LIST", lines.join("\n"), input);
+    return this.accept("LIST", lines.join("\n"), input, { rows });
   }
 
   async sendTemplate(input: SendTemplateInput): Promise<SendResult> {

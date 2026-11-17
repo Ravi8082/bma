@@ -8,6 +8,7 @@
 import type { EntryParser, ParseResult } from "./parser";
 import { deterministicParser } from "./parser";
 import { recordCost } from "../costLog";
+import { env } from "../config/env";
 
 export interface LlmExtractionInput {
   text: string;
@@ -145,7 +146,7 @@ export class LlmExtractionParser implements EntryParser {
     }
 
     if (!extracted || !validateExtracted(extracted, text)) {
-      await recordCost({ shopId: this.shopId, provider: this.provider.name, model: this.provider.model, kind: "LLM", outcome: "FALLBACK", promptTokens, completionTokens, costPaise: 0 });
+      await recordCost({ shopId: this.shopId, provider: this.provider.name, model: this.provider.model, kind: "LLM", outcome: "FALLBACK", promptTokens, completionTokens, costPaise: env.LLM_COST_PAISE_PER_CALL });
       return deterministicParser.parse(text, options);
     }
 
@@ -154,7 +155,7 @@ export class LlmExtractionParser implements EntryParser {
     const direction: "DEBIT" | "CREDIT" =
       extracted.entryType === "PAYMENT_IN" || extracted.entryType === "PAYMENT_OUT" ? "CREDIT" : "DEBIT";
 
-    await recordCost({ shopId: this.shopId, provider: this.provider.name, model: this.provider.model, kind: "LLM", outcome: "SUCCESS", promptTokens, completionTokens, costPaise: 0 });
+    await recordCost({ shopId: this.shopId, provider: this.provider.name, model: this.provider.model, kind: "LLM", outcome: "SUCCESS", promptTokens, completionTokens, costPaise: env.LLM_COST_PAISE_PER_CALL });
 
     return {
       kind: "PARSED",

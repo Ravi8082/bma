@@ -9,6 +9,7 @@ import { errorHandler } from "./middleware/error";
 import { notFoundHandler } from "./middleware/notFound";
 import { requestId } from "./middleware/requestId";
 import { createSimulatorRouter } from "./simulator/simulator.routes";
+import { createTestChannelRouter, isTestChannelEnabled } from "./testChannel/routes";
 import { createWebhookRouter } from "./whatsapp/webhookRoutes";
 import type { WebhookTransactionRunner } from "./whatsapp/webhookController";
 import { captureRawBody } from "./whatsapp/webhookSignature";
@@ -57,6 +58,13 @@ export function createApp(deps: AppDependencies = {}): Express {
 
   if (!isProduction) {
     app.use("/simulator", createSimulatorRouter());
+  }
+
+  // Web chat test channel: available locally, and in production only when TEST_CHANNEL
+  // is explicitly true. The router repeats the check so a future mount change cannot
+  // expose it by accident.
+  if (isTestChannelEnabled({ nodeEnv: env.NODE_ENV, enabled: env.TEST_CHANNEL })) {
+    app.use("/test-channel", createTestChannelRouter());
   }
 
   if (deps.webhook) {

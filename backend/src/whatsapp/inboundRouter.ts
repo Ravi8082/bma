@@ -18,9 +18,11 @@ import { needsReconsent, getLatestConsentVersion, recordConsent, reconsentAlread
 import { findOrCreateCustomer as findOrCreateCustomerModule } from "../modules/customers/customers";
 import { claimNextForShop, getInboxMessage, markDone, markFailed, type InboxMessage } from "./inbox";
 import { enqueueOutbound, enqueueOutboundTx } from "./outbound";
-import { queueSummaryTx } from "./eveningScheduler";
+import { queueSummaryTx, hasQueuedSummarySince, supersedeQueuedSummaries } from "./eveningScheduler";
+import { batchEntryVersions, confirmAllBatch, reviewBatchPage } from "./batch";
+import { claimPilotCapNotice, getPilotSpend, pilotCapBreach, pilotCapsFor, PILOT_CAP_MESSAGE } from "./pilotBudget";
 import { flushQueuedOutboundForShop } from "./outboundSender";
-import type { EntryParser, ParsedEntry } from "./parser";
+import { deterministicParser, type EntryParser, type ParsedEntry } from "./parser";
 import { parseMoneyToken } from "./parser";
 
 export interface InboundDeps {
@@ -59,6 +61,7 @@ async function replyToSeller(
   message: InboxMessage,
   deps: InboundDeps,
   text: string,
+  buttons?: { id: string; title: string }[],
 ): Promise<void> {
   const phone = senderPhone(message.body);
   if (!phone) return;
@@ -76,10 +79,40 @@ async function replyToSeller(
         }),
         keyVersion: 1,
         messageType: "TEXT",
-        payload: { to: phone, text },
+        payload: buttons ? { to: phone, text, buttons } : { to: phone, text },
       });
     },
   );
+}
+
+/** Send one page of a batch review with the Confirm-all / Next tap targets. */
+async function sendReviewPage(
+  message: InboxMessage,
+  deps: InboundDeps,
+  batchId: string,
+  page: number,
+): Promise<void> {
+  const pageSize = 5;
+  const review = await reviewBatchPage(message.shopId, batchId, page, pageSize);
+  if (review.total === 0) {
+    await replyToSeller(message, deps, "That summary has no entries.");
+    return;
+  }
+
+  const pages = Math.max(1, Math.ceil(review.total / pageSize));
+  const lines = [`Review (page ${page + 1} of ${pages}):`];
+  for (const entry of review.entries) {
+    const kind = entry.entry_type === "PAYMENT_IN" ? "payment" : "credit sale";
+    lines.push(
+      `${formatPaise(entry.amount_paise)} ${kind} for ${entry.customer_name} (${entry.status.toLowerCase()})`,
+    );
+  }
+
+  const buttons = [{ id: `confirm_all:${batchId}`, title: "Confirm all" }];
+  if (page + 1 < pages) {
+    buttons.push({ id: `review_page:${batchId}:${page + 1}`, title: "Next" });
+  }
+  await replyToSeller(message, deps, lines.join("\n"), buttons);
 }
 
 /**
@@ -118,6 +151,34 @@ function buttonId(body: Record<string, unknown>): string | null {
 
 // Customer matching is delegated to modules/customers/customers.ts so ambiguity is
 // handled consistently (no auto-pick). findOrCreateCustomerModule is imported above.
+
+/**
+ * Pick the parser for this message.
+ *
+ * A shop that has hit its free-pilot AI ceiling is switched to the deterministic
+ * parser and told once per period. A failure in the budget check also prefers the
+ * free parser: the cap must never be the reason an entry is dropped.
+ */
+async function parserForMessage(message: InboxMessage, deps: InboundDeps): Promise<EntryParser> {
+  if (typeof deps.parser.parseAsync !== "function") return deps.parser;
+
+  try {
+    const spend = await getPilotSpend(message.shopId);
+    const breach = pilotCapBreach(spend, await pilotCapsFor(message.shopId));
+    if (!breach) return deps.parser;
+
+    try {
+      if (await claimPilotCapNotice(message.shopId, breach)) {
+        await replyToSeller(message, deps, PILOT_CAP_MESSAGE);
+      }
+    } catch {
+      // The notice is best effort; the seller's entry still proceeds.
+    }
+    return deterministicParser;
+  } catch {
+    return deterministicParser;
+  }
+}
 
 async function handleText(message: InboxMessage, deps: InboundDeps): Promise<void> {
   const text = textBody(message.body);
@@ -252,10 +313,11 @@ async function handleText(message: InboxMessage, deps: InboundDeps): Promise<voi
   // interactive undo confirm
   // (handled in handleInteractive below via undo_confirm button)
 
+  const activeParser = await parserForMessage(message, deps);
   const parseResult =
-    typeof deps.parser.parseAsync === "function"
-      ? await deps.parser.parseAsync!(text, { maxAmountPaise: env.MAX_ENTRY_PAISE })
-      : deps.parser.parse(text, { maxAmountPaise: env.MAX_ENTRY_PAISE });
+    typeof activeParser.parseAsync === "function"
+      ? await activeParser.parseAsync!(text, { maxAmountPaise: env.MAX_ENTRY_PAISE })
+      : activeParser.parse(text, { maxAmountPaise: env.MAX_ENTRY_PAISE });
 
   if (parseResult.kind === "NOT_AN_ENTRY") {
     throw new Error(`EXTRACTION_FAILED: ${text.slice(0, 80)}`);
@@ -539,6 +601,41 @@ async function handleInteractive(message: InboxMessage, deps: InboundDeps): Prom
     return;
   }
 
+  // Evening summary: Confirm all posts each pending entry exactly once. A repeated tap
+  // finds the drafts already CONFIRMED and posts nothing further.
+  const confirmAllMatch = id ? /^confirm_all:([0-9a-fA-F-]{36})$/.exec(id) : null;
+  if (confirmAllMatch) {
+    const batchId = confirmAllMatch[1] ?? "";
+    const versions = await batchEntryVersions(message.shopId, batchId);
+    if (versions.length === 0) {
+      await replyToSeller(message, deps, "That summary is no longer available.");
+      return;
+    }
+    const expected: Record<string, number> = {};
+    for (const version of versions) expected[version.draftId] = version.version;
+
+    const result = await confirmAllBatch(message.shopId, batchId, { keyRef: deps.keyRef }, expected);
+    const parts = [
+      `Confirmed ${result.confirmed} ${result.confirmed === 1 ? "entry" : "entries"} totalling ${formatPaise(result.totalPaise)}.`,
+    ];
+    if (result.skipped > 0) parts.push(`${result.skipped} skipped (needs a type or already confirmed).`);
+    if (result.failed > 0) parts.push(`${result.failed} could not be confirmed; please review again.`);
+    await replyToSeller(message, deps, parts.join(" "));
+    return;
+  }
+
+  const reviewMatch = id ? /^review:([0-9a-fA-F-]{36})$/.exec(id) : null;
+  if (reviewMatch) {
+    await sendReviewPage(message, deps, reviewMatch[1] ?? "", 0);
+    return;
+  }
+
+  const reviewPageMatch = id ? /^review_page:([0-9a-fA-F-]{36}):(\d{1,3})$/.exec(id) : null;
+  if (reviewPageMatch) {
+    await sendReviewPage(message, deps, reviewPageMatch[1] ?? "", Number(reviewPageMatch[2] ?? "0"));
+    return;
+  }
+
   const match = id ? /^(confirm|cancel):([0-9a-fA-F-]{36})$/.exec(id) : null;
   if (!match) throw new Error("UNKNOWN_INTERACTIVE_ACTION");
   const action = match[1];
@@ -719,8 +816,28 @@ export async function processNextInboxMessageForShop(
   try {
     await handleMessage(message, deps);
     await markDone(claimed.id);
-    // Pending digest: surface stale queued messages to the seller.
+    // A summary queued while the 24-hour window was closed is stale by the time the
+    // seller messages again. Retire it, then queue a fresh summary for the current
+    // pending drafts so the seller never receives yesterday's numbers.
     if (deps.messaging) {
+      try {
+        const superseded = await supersedeQueuedSummaries(message.shopId, message.receivedAt);
+        if (superseded > 0 && !(await hasQueuedSummarySince(message.shopId, message.receivedAt))) {
+          const phone = senderPhone(message.body);
+          if (phone) {
+            const bidx = phoneBlindIndex(phone, deps.blindIndexKey);
+            await withTenant(
+              { shopId: message.shopId, actorType: "SYSTEM", actorId: "inbound" },
+              async (db) => {
+                await queueSummaryTx(db, message.shopId, { phone, bidx }, deps.keyRef);
+              },
+            );
+          }
+        }
+      } catch {
+        // A failed refresh leaves the old row queued; the scheduler retries later.
+      }
+      // Pending digest: surface stale queued messages to the seller.
       try {
         const sellerPhone = senderPhone(message.body);
         if (sellerPhone) {
