@@ -70,6 +70,18 @@ Do NOT use production credentials.
 - [ ] Tap Edit -> Type, send "credit" -> is_credit_sale updated
 - [ ] Tap Edit on a confirmed draft -> rejected
 
+## Enabling undo/edit for one shop
+Undo/edit is off by default for every shop. Turn it on for a single shop (seller-facing
+text commands and the button taps are gated by the same flag):
+
+```sql
+UPDATE app.shop_settings SET undo_edit_enabled = true  WHERE shop_id = '<shop-uuid>';
+UPDATE app.shop_settings SET undo_edit_enabled = false WHERE shop_id = '<shop-uuid>'; -- turn off again
+```
+
+Run this as the migrator/owner role, not as `bma_app`, and only for the shop under test.
+The evening summary (`summary` / `hisaab`) is not gated by this flag.
+
 ## Sign-off
 - [ ] All items above verified by: _______________
 - [ ] Date: _______________

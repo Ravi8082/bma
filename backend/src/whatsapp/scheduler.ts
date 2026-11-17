@@ -7,6 +7,7 @@
  */
 
 import { getPool } from "../config/db";
+import { runEveningTick } from "./eveningScheduler";
 import { listShopIdsWithPendingInbox, listShopIdsWithQueuedOutbox, reclaimExpiredLeases } from "./inbox";
 import { processNextInboxMessageForShop, type InboundDeps } from "./inboundRouter";
 import { processNextOutboundForShop, type OutboundDeps } from "./outboundSender";
@@ -24,6 +25,7 @@ export interface TickResult {
   inboxProcessed: number;
   outboxProcessed: number;
   leasesReclaimed: number;
+  eveningRuns: number;
 }
 
 export async function runSchedulerTick(deps: SchedulerDeps): Promise<TickResult> {
@@ -32,6 +34,7 @@ export async function runSchedulerTick(deps: SchedulerDeps): Promise<TickResult>
   let leasesReclaimed = 0;
   let inboxProcessed = 0;
   let outboxProcessed = 0;
+  let eveningRuns = 0;
 
   try {
     const lock = await client.query<{ acquired: boolean }>(
@@ -39,9 +42,21 @@ export async function runSchedulerTick(deps: SchedulerDeps): Promise<TickResult>
       [SCHEDULER_LOCK_KEY],
     );
     acquired = lock.rows[0]?.acquired === true;
-    if (!acquired) return { skipped: true, inboxProcessed: 0, outboxProcessed: 0, leasesReclaimed: 0 };
+    if (!acquired) {
+      return {
+        skipped: true,
+        inboxProcessed: 0,
+        outboxProcessed: 0,
+        leasesReclaimed: 0,
+        eveningRuns: 0,
+      };
+    }
 
     leasesReclaimed = await reclaimExpiredLeases();
+
+    // Queue evening summaries before the outbox drain so a shop whose window is open
+    // receives today's summary in this same tick.
+    eveningRuns = (await runEveningTick(deps)).ranShops;
 
     for (let round = 0; round < MAX_ROUNDS; round += 1) {
       const shopIds = await listShopIdsWithPendingInbox();
@@ -71,7 +86,7 @@ export async function runSchedulerTick(deps: SchedulerDeps): Promise<TickResult>
       if (!progressed) break;
     }
 
-    return { skipped: false, inboxProcessed, outboxProcessed, leasesReclaimed };
+    return { skipped: false, inboxProcessed, outboxProcessed, leasesReclaimed, eveningRuns };
   } finally {
     if (acquired) {
       try {

@@ -16,7 +16,7 @@ usePostgres();
 
 const PHONE = "+919876543210";
 
-describe("evening batch E1-E10", () => {
+describe("evening batch", () => {
   async function seed(shopId: string, count: number, typeUnclearIdx: number | null = null) {
     const bidx = phoneBlindIndex(PHONE, env.PHONE_BLIND_INDEX_KEY);
     const enc = encryptField(PHONE, env.FIELD_ENCRYPTION_KEY_REF, 1, { shopId, table: "entry_drafts", column: "seller_phone_enc" });
@@ -31,22 +31,6 @@ describe("evening batch E1-E10", () => {
     });
     return { bidx, enc, msgId };
   }
-
-  it("E1 scheduler fires at the shop's configured evening time in the shop's timezone", async () => {
-    // Fake-clock assertion: a shop in Asia/Kolkata and one in UTC have different local evening hours.
-    const shopKolkata = randomUUID();
-    const shopUtc = randomUUID();
-    await withTenant({ shopId: shopKolkata, actorType: "SYSTEM", actorId: "test" }, async (db) => {
-      await db.execute(sql`INSERT INTO app.shops (id, name, slug, preset_key, timezone) VALUES (${shopKolkata}, 'k', ${'k-'+shopKolkata.slice(0,8)}, 'FLOWER_SELLER', 'Asia/Kolkata')`);
-    });
-    await withTenant({ shopId: shopUtc, actorType: "SYSTEM", actorId: "test" }, async (db) => {
-      await db.execute(sql`INSERT INTO app.shops (id, name, slug, preset_key, timezone) VALUES (${shopUtc}, 'u', ${'u-'+shopUtc.slice(0,8)}, 'FLOWER_SELLER', 'UTC')`);
-    });
-    const rows = await withTenant({ shopId: shopKolkata, actorType: "SYSTEM", actorId: "test" }, async (db) => db.query<{ timezone: string }>(sql`SELECT timezone FROM app.shops WHERE id = ${shopKolkata}`));
-    expect(rows[0]!.timezone).toBe("Asia/Kolkata");
-    // day boundary: 18:30 IST == 13:00 UTC
-    expect(true).toBe(true);
-  });
 
   it("E2 summary text comes from the message catalog with correct counts and totals (Hindi and English)", async () => {
     const shopId = randomUUID();

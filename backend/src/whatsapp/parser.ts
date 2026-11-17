@@ -37,7 +37,7 @@ const NUMBER_WORDS: Record<string, number> = { dedh: 1.5, paune: 0.75 };
 const RETURN_WORD_RE = /\b(wapas|vaapas|parichay|parat|repay|return|refund)\b/i;
 
 /** Parse a money token that may carry an optional currency prefix and digit grouping. */
-function parseMoneyToken(token: string): number | null {
+export function parseMoneyToken(token: string): number | null {
   let t = token.trim();
   const prefix = MONEY_PREFIX.exec(t);
   if (prefix) t = t.slice(prefix[0].length).trim();

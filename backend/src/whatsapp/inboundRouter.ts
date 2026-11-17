@@ -13,13 +13,15 @@ import { withTenant } from "../db/tenant";
 import type { MessagingProvider } from "../integrations/messaging/types";
 import { sql } from "../db/sql";
 import { raiseInboxDeadLetter, raiseOutboxStale } from "./alerts";
-import { cancelDraft, confirmDraft, formatPaise, reverseLedgerEntry } from "./confirmation";
+import { cancelDraft, confirmDraft, formatPaise, reverseLedgerEntry, EntryAlreadyReversedError } from "./confirmation";
 import { needsReconsent, getLatestConsentVersion, recordConsent, reconsentAlreadySentToday, consentDeclinedRecently } from "../modules/onboarding/consent";
 import { findOrCreateCustomer as findOrCreateCustomerModule } from "../modules/customers/customers";
 import { claimNextForShop, getInboxMessage, markDone, markFailed, type InboxMessage } from "./inbox";
 import { enqueueOutbound, enqueueOutboundTx } from "./outbound";
+import { queueSummaryTx } from "./eveningScheduler";
 import { flushQueuedOutboundForShop } from "./outboundSender";
 import type { EntryParser, ParsedEntry } from "./parser";
+import { parseMoneyToken } from "./parser";
 
 export interface InboundDeps {
   parser: EntryParser;
@@ -52,6 +54,58 @@ function senderPhone(body: Record<string, unknown>): string | null {
   }
 }
 
+/** Best-effort plain-text reply to the seller for a refused command. */
+async function replyToSeller(
+  message: InboxMessage,
+  deps: InboundDeps,
+  text: string,
+): Promise<void> {
+  const phone = senderPhone(message.body);
+  if (!phone) return;
+  const bidx = phoneBlindIndex(phone, deps.blindIndexKey);
+  await withTenant(
+    { shopId: message.shopId, actorType: "WORKER", actorId: "inbound" },
+    async (db) => {
+      await enqueueOutboundTx(db, {
+        shopId: message.shopId,
+        recipientPhoneBidx: bidx,
+        recipientPhoneEnc: encryptField(phone, deps.keyRef, 1, {
+          shopId: message.shopId,
+          table: "outbox_events",
+          column: "recipient_phone_enc",
+        }),
+        keyVersion: 1,
+        messageType: "TEXT",
+        payload: { to: phone, text },
+      });
+    },
+  );
+}
+
+/**
+ * Undo via the append-only ledger. A second undo or an entry id that does not belong to
+ * this shop is answered politely instead of failing the inbox message into a retry loop.
+ */
+async function undoPolitely(
+  message: InboxMessage,
+  entryId: string,
+  deps: InboundDeps,
+): Promise<void> {
+  try {
+    await reverseLedgerEntry(message.shopId, entryId, "seller undo");
+  } catch (error) {
+    if (error instanceof EntryAlreadyReversedError) {
+      await replyToSeller(message, deps, "That entry is already undone.");
+      return;
+    }
+    if (error instanceof Error && error.message === "ledger entry not found") {
+      await replyToSeller(message, deps, "I could not find that entry, please send it again.");
+      return;
+    }
+    throw error;
+  }
+}
+
 function buttonId(body: Record<string, unknown>): string | null {
   const interactive = body.interactive as
     | { button_reply?: { id?: unknown }; list_reply?: { id?: unknown } }
@@ -79,36 +133,41 @@ async function handleText(message: InboxMessage, deps: InboundDeps): Promise<voi
 
   if (pendingRow) {
     // If the message parses as a new entry, ask once instead of treating it as the edit value.
+    // The pending edit is dropped so the seller's repeat is processed as a new entry.
     const parsed = deps.parser.parse(text, { maxAmountPaise: env.MAX_ENTRY_PAISE });
     if (parsed.kind === "PARSED" || parsed.kind === "MULTI") {
-      const sellerPhone = senderPhone(message.body);
-      if (sellerPhone) {
-        const bidx = phoneBlindIndex(sellerPhone, deps.blindIndexKey);
-        await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
-          const enc = encryptField(sellerPhone, deps.keyRef, 1, { shopId: message.shopId, table: "outbox_events", column: "recipient_phone_enc" });
-          await enqueueOutboundTx(db, {
-            shopId: message.shopId,
-            recipientPhoneBidx: bidx,
-            recipientPhoneEnc: enc,
-            keyVersion: 1,
-            messageType: "TEXT",
-            payload: { to: sellerPhone, text: "Is this the new amount for the draft, or a new entry?" },
-          });
-        });
-      }
+      await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+        await db.execute(sql`DELETE FROM app.pending_edits WHERE shop_id = ${message.shopId} AND id = ${pendingRow.id}`);
+      });
+      await replyToSeller(message, deps, "Is this the new amount for the draft, or a new entry?");
       return;
     }
+    if (pendingRow.field === "amount") {
+      const amt = parseMoneyToken(text);
+      // Integer paise only. A zero, negative, non-numeric or above-ceiling value is refused
+      // and the pending edit stays open so the seller can answer again.
+      if (amt === null || amt >= env.MAX_ENTRY_PAISE) {
+        await replyToSeller(message, deps, "That amount doesn't look right. Send a number like 500.");
+        return;
+      }
+    }
     await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
-      await db.execute(sql`DELETE FROM app.pending_edits WHERE id = ${pendingRow.id}`);
+      await db.execute(sql`DELETE FROM app.pending_edits WHERE shop_id = ${message.shopId} AND id = ${pendingRow.id}`);
       if (pendingRow.field === "name") {
         await db.execute(sql`UPDATE app.entry_drafts SET customer_name = ${text} WHERE shop_id = ${message.shopId} AND id = ${pendingRow.draft_id} AND status = 'PENDING'`);
       } else if (pendingRow.field === "amount") {
-        const amt = Number.parseInt(text, 10);
-        if (!Number.isFinite(amt) || amt <= 0) throw new Error("INVALID_AMOUNT");
-        await db.execute(sql`UPDATE app.entry_drafts SET amount_paise = ${amt} WHERE shop_id = ${message.shopId} AND id = ${pendingRow.draft_id} AND status = 'PENDING'`);
+        const amt = parseMoneyToken(text);
+        if (amt !== null) {
+          await db.execute(sql`UPDATE app.entry_drafts SET amount_paise = ${amt} WHERE shop_id = ${message.shopId} AND id = ${pendingRow.draft_id} AND status = 'PENDING'`);
+        }
       } else if (pendingRow.field === "type") {
-        const isCredit = /credit/i.test(text);
-        await db.execute(sql`UPDATE app.entry_drafts SET is_credit_sale = ${isCredit}, type_unclear = false WHERE shop_id = ${message.shopId} AND id = ${pendingRow.draft_id} AND status = 'PENDING'`);
+        const isCredit = /credit|udhaar|udhar/i.test(text);
+        await db.execute(sql`UPDATE app.entry_drafts
+               SET is_credit_sale = ${isCredit},
+                   type_unclear = false,
+                   entry_type = CASE WHEN ${isCredit} THEN 'SALE' ELSE entry_type END,
+                   direction = CASE WHEN ${isCredit} THEN direction ELSE 'CREDIT' END
+             WHERE shop_id = ${message.shopId} AND id = ${pendingRow.draft_id} AND status = 'PENDING'`);
       }
     });
     return;
@@ -117,6 +176,35 @@ async function handleText(message: InboxMessage, deps: InboundDeps): Promise<voi
   const sellerPhone = senderPhone(message.body);
   if (!sellerPhone) throw new Error("MISSING_SELLER_PHONE");
   const sellerBidx = phoneBlindIndex(sellerPhone, deps.blindIndexKey);
+
+  // Seller-facing on-demand summary. Independent of the undo/edit flag: it only reads
+  // pending drafts and queues the same message the evening scheduler sends, so the seller
+  // can trigger it manually during onboarding or a live test.
+  if (/^(summary|hisaab|hisab|हिसाब)$/iu.test(text.trim())) {
+    await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+      const summary = await queueSummaryTx(
+        db,
+        message.shopId,
+        { phone: sellerPhone, bidx: sellerBidx },
+        deps.keyRef,
+      );
+      if (!summary.queued) {
+        await enqueueOutboundTx(db, {
+          shopId: message.shopId,
+          recipientPhoneBidx: sellerBidx,
+          recipientPhoneEnc: encryptField(sellerPhone, deps.keyRef, 1, {
+            shopId: message.shopId,
+            table: "outbox_events",
+            column: "recipient_phone_enc",
+          }),
+          keyVersion: 1,
+          messageType: "TEXT",
+          payload: { to: sellerPhone, text: "No pending entries today." },
+        });
+      }
+    });
+    return;
+  }
 
   // Feature flag: undo/edit disabled by default per shop.
   const undoEditEnabled = await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
@@ -158,25 +246,6 @@ async function handleText(message: InboxMessage, deps: InboundDeps): Promise<voi
         });
       });
     }
-    return;
-  }
-
-  // Seller-facing edit command before confirm: "edit <draftId> name|amount|type <value>"
-  const editMatch = /^edit\s+([0-9a-fA-F-]{36})\s+(name|amount|type)\s+(.+)$/i.exec(text.trim());
-  if (editMatch) {
-    const draftId = editMatch[1]!;
-    const field = editMatch[2]!.toLowerCase();
-    const value = editMatch[3]!.trim();
-    await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
-      if (field === "name") {
-        await db.execute(sql`UPDATE app.entry_drafts SET customer_name = ${value} WHERE shop_id = ${message.shopId} AND id = ${draftId} AND status = 'PENDING'`);
-      } else if (field === "amount") {
-        await db.execute(sql`UPDATE app.entry_drafts SET amount_paise = ${Number.parseInt(value, 10)} WHERE shop_id = ${message.shopId} AND id = ${draftId} AND status = 'PENDING'`);
-      } else if (field === "type") {
-        const isCredit = /credit/i.test(value);
-        await db.execute(sql`UPDATE app.entry_drafts SET is_credit_sale = ${isCredit}, type_unclear = false WHERE shop_id = ${message.shopId} AND id = ${draftId} AND status = 'PENDING'`);
-      }
-    });
     return;
   }
 
@@ -320,12 +389,22 @@ async function handleInteractive(message: InboxMessage, deps: InboundDeps): Prom
     });
     return;
   }
-  const undoMatch = id ? /^undo_confirm:([0-9a-fA-F-]{36})$/.exec(id) : null;
-  if (undoMatch) {
-    const entryId = undoMatch[1] ?? "";
-    await reverseLedgerEntry(message.shopId, entryId, "seller undo");
+  // Per-shop feature flag: undo/edit are off by default. Refuse both the text commands
+  // (handled in handleText) and the interactive taps politely.
+  const undoEditEnabled = await withTenant(
+    { shopId: message.shopId, actorType: "WORKER", actorId: "inbound" },
+    async (db) => {
+      const rows = await db.query<{ undo_edit_enabled: boolean }>(
+        sql`SELECT undo_edit_enabled FROM app.shop_settings WHERE shop_id = ${message.shopId}`,
+      );
+      return rows[0]?.undo_edit_enabled ?? false;
+    },
+  );
+  if (!undoEditEnabled && id && /^(undo_confirm|undo_final|edit)(:|_)/.test(id)) {
+    await replyToSeller(message, deps, "Undo/Edit is not enabled for this shop.");
     return;
   }
+
   const resolveMatch = id ? /^resolve_(credit|cash):([0-9a-fA-F-]{36})$/.exec(id) : null;
   if (resolveMatch) {
     const choice = resolveMatch[1];
@@ -344,22 +423,24 @@ async function handleInteractive(message: InboxMessage, deps: InboundDeps): Prom
   if (editPickMatch) {
     const field = editPickMatch[1]!;
     const draftId = editPickMatch[2]!;
-    const sellerPhone2 = senderPhone(message.body);
-    if (sellerPhone2) {
-      const bidx2 = phoneBlindIndex(sellerPhone2, deps.blindIndexKey);
-      await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
-        const enc = encryptField(sellerPhone2, deps.keyRef, 1, { shopId: message.shopId, table: "outbox_events", column: "recipient_phone_enc" });
-        await enqueueOutboundTx(db, {
-          shopId: message.shopId,
-          recipientPhoneBidx: bidx2,
-          recipientPhoneEnc: enc,
-          keyVersion: 1,
-          messageType: "TEXT",
-          payload: { to: sellerPhone2, text: `Send new ${field}.` },
-        });
-      });
+    const draft = await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+      return db.queryOne<{ id: string; status: string }>(
+        sql`SELECT id, status FROM app.entry_drafts WHERE shop_id = ${message.shopId} AND id = ${draftId}`,
+      );
+    });
+    if (!draft) {
+      await replyToSeller(message, deps, "I could not find that entry, please send it again.");
+      return;
     }
+    if (draft.status !== "PENDING") {
+      await replyToSeller(message, deps, "That entry is already confirmed. Undo it first.");
+      return;
+    }
+    await replyToSeller(message, deps, `Send new ${field}.`);
     await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+      // One active edit per shop: a double tap replaces the previous prompt instead of
+      // leaving two rows that the next message would have to choose between.
+      await db.execute(sql`DELETE FROM app.pending_edits WHERE shop_id = ${message.shopId}`);
       await db.execute(sql`INSERT INTO app.pending_edits (shop_id, draft_id, field, expires_at) VALUES (${message.shopId}, ${draftId}, ${field}, now() + interval '2 minutes')`);
     });
     return;
@@ -368,6 +449,19 @@ async function handleInteractive(message: InboxMessage, deps: InboundDeps): Prom
   const editMatch2 = id ? /^edit:([0-9a-fA-F-]{36})$/.exec(id) : null;
   if (editMatch2) {
     const draftId = editMatch2[1]!;
+    const draft = await withTenant({ shopId: message.shopId, actorType: "WORKER", actorId: "inbound" }, async (db) => {
+      return db.queryOne<{ id: string; status: string }>(
+        sql`SELECT id, status FROM app.entry_drafts WHERE shop_id = ${message.shopId} AND id = ${draftId}`,
+      );
+    });
+    if (!draft) {
+      await replyToSeller(message, deps, "I could not find that entry, please send it again.");
+      return;
+    }
+    if (draft.status !== "PENDING") {
+      await replyToSeller(message, deps, "That entry is already confirmed. Undo it first.");
+      return;
+    }
     const sellerPhone2 = senderPhone(message.body);
     if (sellerPhone2) {
       const bidx2 = phoneBlindIndex(sellerPhone2, deps.blindIndexKey);
@@ -435,13 +529,13 @@ async function handleInteractive(message: InboxMessage, deps: InboundDeps): Prom
         return;
       }
     }
-    await reverseLedgerEntry(message.shopId, entryId, "seller undo");
+    await undoPolitely(message, entryId, deps);
     return;
   }
 
   const undoFinalMatch = id ? /^undo_final:([0-9a-fA-F-]{36})$/.exec(id) : null;
   if (undoFinalMatch) {
-    await reverseLedgerEntry(message.shopId, undoFinalMatch[1] ?? "", "seller undo");
+    await undoPolitely(message, undoFinalMatch[1] ?? "", deps);
     return;
   }
 
