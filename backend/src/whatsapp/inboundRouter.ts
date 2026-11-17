@@ -38,6 +38,7 @@ export interface InboundDeps {
   stt?: SttProvider;
   mediaFetcher?: (mediaId: string) => Promise<{ buffer: Buffer; mimeType: string }>;
   sttCostPaisePerMinute?: number;
+  sttLanguageHint?: string;
 }
 
 export type InboxOutcome = "DONE" | "FAILED" | "DEAD" | "EMPTY";
@@ -736,7 +737,11 @@ async function handleAudio(message: InboxMessage, deps: InboundDeps): Promise<vo
   }
 
   let transcript = "";
-  const result = await stt.transcribe({ buffer, mimeType, languageHint: "hi" });
+  const result = await stt.transcribe(
+    deps.sttLanguageHint
+      ? { buffer, mimeType, languageHint: deps.sttLanguageHint }
+      : { buffer, mimeType },
+  );
   transcript = (result.text ?? "").trim();
   const durationSeconds = result.durationSeconds;
   const minutes = durationSeconds ? durationSeconds / 60 : 0;

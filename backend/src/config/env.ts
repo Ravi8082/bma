@@ -59,6 +59,7 @@ const envSchema = z
     STT_PROVIDER: z.enum(["stub", "whisper"]).default("stub"),
     STT_API_KEY: z.string().optional(),
     STT_COST_PAISE_PER_MINUTE: z.coerce.number().int().min(0).default(100),
+    STT_LANGUAGE: z.preprocess(emptyToUndefined, z.string().optional()),
 
     /** Free-pilot ceilings. Never converted into a payment request. */
     PILOT_DAILY_CAP_PAISE: z.coerce.number().int().positive().default(5_000),

@@ -28,11 +28,14 @@ const ALLOWED_MIME_TYPES: Record<string, string[]> = {
   video: ["video/mp4", "video/3gpp"],
 };
 
-const MAGIC_BYTES: Record<string, number[]> = {
-  "image/jpeg": [0xff, 0xd8, 0xff],
-  "image/png": [0x89, 0x50, 0x4e, 0x47],
-  "image/webp": [0x52, 0x49, 0x46, 0x46],
-  "application/pdf": [0x25, 0x50, 0x44, 0x46],
+const MAGIC_BYTES: Record<string, { offset: number; bytes: number[] }> = {
+  "image/jpeg": { offset: 0, bytes: [0xff, 0xd8, 0xff] },
+  "image/png": { offset: 0, bytes: [0x89, 0x50, 0x4e, 0x47] },
+  "image/webp": { offset: 0, bytes: [0x52, 0x49, 0x46, 0x46] },
+  "application/pdf": { offset: 0, bytes: [0x25, 0x50, 0x44, 0x46] },
+  "audio/ogg": { offset: 0, bytes: [0x4f, 0x67, 0x67, 0x53] },
+  "audio/wav": { offset: 0, bytes: [0x52, 0x49, 0x46, 0x46] },
+  "audio/mp4": { offset: 4, bytes: [0x66, 0x74, 0x79, 0x70] },
 };
 
 export class MediaFetchError extends Error {
@@ -123,13 +126,24 @@ export function validateMimeType(mimeType: string, mediaType: string): void {
 }
 
 export function validateMagicBytes(buffer: Buffer, mimeType: string): void {
-  const expected = MAGIC_BYTES[mimeType];
-  if (!expected) return;
-  if (buffer.length < expected.length) {
+  if (mimeType === "audio/mpeg") {
+    if (buffer.length < 3) {
+      throw new MediaFetchError("MEDIA_MAGIC_MISMATCH", "file too short for magic-byte check");
+    }
+    const isId3 = buffer.length >= 3 && buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33;
+    const isSync = buffer.length >= 2 && buffer[0] === 0xff && (buffer[1]! & 0xe0) === 0xe0;
+    if (!isId3 && !isSync) {
+      throw new MediaFetchError("MEDIA_MAGIC_MISMATCH", "file magic bytes do not match declared MIME type");
+    }
+    return;
+  }
+  const spec = MAGIC_BYTES[mimeType];
+  if (!spec) return;
+  if (buffer.length < spec.offset + spec.bytes.length) {
     throw new MediaFetchError("MEDIA_MAGIC_MISMATCH", "file too short for magic-byte check");
   }
-  for (let i = 0; i < expected.length; i++) {
-    if (buffer[i] !== expected[i]) {
+  for (let i = 0; i < spec.bytes.length; i++) {
+    if (buffer[spec.offset + i] !== spec.bytes[i]) {
       throw new MediaFetchError("MEDIA_MAGIC_MISMATCH", "file magic bytes do not match declared MIME type");
     }
   }
@@ -144,9 +158,23 @@ export function validateMagicBytes(buffer: Buffer, mimeType: string): void {
  * Returns the URL string. Caller must still validate and fetch via fetchMedia.
  */
 export async function resolveWhatsAppMediaUrl(mediaId: string, accessToken: string): Promise<string> {
-  const response = await fetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(mediaId)}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+  let response: Response;
+  try {
+    response = await fetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(mediaId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      redirect: "error",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new MediaFetchError("MEDIA_TIMEOUT", "media metadata request timed out");
+    }
+    throw new MediaFetchError("MEDIA_FETCH_FAILED", error instanceof Error ? error.message : String(error));
+  }
+  clearTimeout(timeoutId);
   if (!response.ok) {
     throw new MediaFetchError("MEDIA_FETCH_FAILED", `media metadata HTTP ${response.status}`);
   }
@@ -162,22 +190,75 @@ export async function fetchMedia(
 ): Promise<{ buffer: Buffer; mimeType: string; size: number }> {
   await validateMediaUrl(url);
 
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    redirect: "error", // disallow redirects
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      redirect: "error",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new MediaFetchError("MEDIA_TIMEOUT", "media fetch timed out");
+    }
+    throw new MediaFetchError("MEDIA_FETCH_FAILED", error instanceof Error ? error.message : String(error));
+  }
 
   if (!response.ok) {
+    clearTimeout(timeoutId);
     throw new MediaFetchError("MEDIA_FETCH_FAILED", `HTTP ${response.status}`);
   }
 
   const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
   validateMimeType(mimeType, mediaType);
 
-  const arrayBuffer = await response.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+  const contentLength = response.headers.get("content-length");
+  if (contentLength) {
+    const declared = Number(contentLength);
+    if (!Number.isFinite(declared) || declared <= 0) {
+      clearTimeout(timeoutId);
+      throw new MediaFetchError("MEDIA_TOO_LARGE", "invalid content-length");
+    }
+    validateMediaSize(declared, mediaType);
+  }
+
+  const limit = MAX_SIZE_BYTES[mediaType] as number;
+  const reader = response.body?.getReader();
+  if (!reader) {
+    clearTimeout(timeoutId);
+    throw new MediaFetchError("MEDIA_FETCH_FAILED", "no response body");
+  }
+
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) {
+        try { await reader.cancel(); } catch { /* ignore */ }
+        throw new MediaFetchError("MEDIA_TOO_LARGE", `media exceeds ${limit} bytes`);
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof MediaFetchError) throw error;
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new MediaFetchError("MEDIA_TIMEOUT", "media fetch timed out");
+    }
+    throw new MediaFetchError("MEDIA_FETCH_FAILED", error instanceof Error ? error.message : String(error));
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  const buffer = Buffer.concat(chunks);
   validateMediaSize(buffer.length, mediaType);
   validateMagicBytes(buffer, mimeType);
-
   return { buffer, mimeType, size: buffer.length };
 }
