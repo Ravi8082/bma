@@ -12,13 +12,14 @@ import { normalisePhone } from "../crypto/phone";
 import { withTenant } from "../db/tenant";
 import type { MessagingProvider } from "../integrations/messaging/types";
 import { sql } from "../db/sql";
+import { sellerAdvisoryKey } from "./advisory";
 import { raiseInboxDeadLetter, raiseOutboxStale } from "./alerts";
 import { cancelDraft, confirmDraft, formatPaise, reverseLedgerEntry, EntryAlreadyReversedError } from "./confirmation";
 import { needsReconsent, getLatestConsentVersion, recordConsent, reconsentAlreadySentToday, consentDeclinedRecently } from "../modules/onboarding/consent";
 import { findOrCreateCustomer as findOrCreateCustomerModule } from "../modules/customers/customers";
 import { claimNextForShop, getInboxMessage, markDone, markFailed, type InboxMessage } from "./inbox";
 import { enqueueOutbound, enqueueOutboundTx } from "./outbound";
-import { queueSummaryTx, hasQueuedSummarySince, supersedeQueuedSummaries } from "./eveningScheduler";
+import { queueSummaryTx } from "./eveningScheduler";
 import { batchEntryVersions, confirmAllBatch, reviewBatchPage } from "./batch";
 import { claimPilotCapNotice, getPilotSpend, pilotCapBreach, pilotCapsFor, PILOT_CAP_MESSAGE } from "./pilotBudget";
 import { flushQueuedOutboundForShop } from "./outboundSender";
@@ -821,19 +822,44 @@ export async function processNextInboxMessageForShop(
     // pending drafts so the seller never receives yesterday's numbers.
     if (deps.messaging) {
       try {
-        const superseded = await supersedeQueuedSummaries(message.shopId, message.receivedAt);
-        if (superseded > 0 && !(await hasQueuedSummarySince(message.shopId, message.receivedAt))) {
-          const phone = senderPhone(message.body);
-          if (phone) {
-            const bidx = phoneBlindIndex(phone, deps.blindIndexKey);
-            await withTenant(
-              { shopId: message.shopId, actorType: "SYSTEM", actorId: "inbound" },
-              async (db) => {
-                await queueSummaryTx(db, message.shopId, { phone, bidx }, deps.keyRef);
-              },
+        await withTenant(
+          { shopId: message.shopId, actorType: "SYSTEM", actorId: "inbound" },
+          async (db) => {
+            // Serialize stale-summary refresh per shop so two concurrent inbound messages
+            // cannot both supersede and both queue a fresh summary.
+            await db.execute(
+              sql`SELECT pg_advisory_xact_lock(${sellerAdvisoryKey(message.shopId)}::bigint)`,
             );
-          }
-        }
+
+            const superseded = await db.execute(
+              sql`UPDATE app.outbox_events
+                     SET state = 'DEAD', last_error = 'SUPERSEDED', updated_at = now()
+                   WHERE shop_id = ${message.shopId}
+                     AND state = 'QUEUED'
+                     AND payload->>'kind' = 'EVENING_SUMMARY'
+                     AND queued_at < ${message.receivedAt}`,
+            );
+
+            const existsRow = await db.queryOne<{ present: boolean }>(
+              sql`SELECT EXISTS (
+                    SELECT 1 FROM app.outbox_events
+                     WHERE shop_id = ${message.shopId}
+                       AND state = 'QUEUED'
+                       AND payload->>'kind' = 'EVENING_SUMMARY'
+                       AND queued_at >= ${message.receivedAt}
+                  ) AS present`,
+            );
+            const alreadyQueued = existsRow?.present === true;
+
+            if (superseded > 0 && !alreadyQueued) {
+              const phone = senderPhone(message.body);
+              if (phone) {
+                const bidx = phoneBlindIndex(phone, deps.blindIndexKey);
+                await queueSummaryTx(db, message.shopId, { phone, bidx }, deps.keyRef);
+              }
+            }
+          },
+        );
       } catch {
         // A failed refresh leaves the old row queued; the scheduler retries later.
       }
