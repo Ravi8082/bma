@@ -10,8 +10,12 @@ import { encryptField } from "../crypto/fieldEncryption";
 import { phoneBlindIndex } from "../crypto/blindIndex";
 import { normalisePhone } from "../crypto/phone";
 import { withTenant } from "../db/tenant";
-import type { MessagingProvider } from "../integrations/messaging/types";
 import { sql } from "../db/sql";
+import type { MessagingProvider } from "../integrations/messaging/types";
+import type { SttProvider } from "../integrations/speech/types";
+import { StubSttProvider } from "../integrations/speech/stub";
+import { recordCost } from "../costLog";
+import { fetchMedia, resolveWhatsAppMediaUrl, validateMediaSize, validateMimeType } from "./media";
 import { sellerAdvisoryKey } from "./advisory";
 import { raiseInboxDeadLetter, raiseOutboxStale } from "./alerts";
 import { cancelDraft, confirmDraft, formatPaise, reverseLedgerEntry, EntryAlreadyReversedError } from "./confirmation";
@@ -31,6 +35,9 @@ export interface InboundDeps {
   keyRef: string;
   blindIndexKey: string;
   messaging?: MessagingProvider;
+  stt?: SttProvider;
+  mediaFetcher?: (mediaId: string) => Promise<{ buffer: Buffer; mimeType: string }>;
+  sttCostPaisePerMinute?: number;
 }
 
 export type InboxOutcome = "DONE" | "FAILED" | "DEAD" | "EMPTY";
@@ -693,10 +700,85 @@ async function handleUnsupported(message: InboxMessage, deps: InboundDeps): Prom
   );
 }
 
+async function handleAudio(message: InboxMessage, deps: InboundDeps): Promise<void> {
+  const mediaId = mediaIdFromMessage(message.body);
+  const phone = senderPhone(message.body);
+  if (!mediaId || !phone) {
+    await replyToSeller(message, deps, "I could not process that voice note. Please send it as text.");
+    return;
+  }
+
+  const stt = deps.stt ?? new StubSttProvider();
+  const costPerMinute = deps.sttCostPaisePerMinute ?? env.STT_COST_PAISE_PER_MINUTE;
+
+  let buffer: Buffer;
+  let mimeType: string;
+  if (deps.mediaFetcher) {
+    const fetched = await deps.mediaFetcher(mediaId);
+    buffer = fetched.buffer;
+    mimeType = fetched.mimeType;
+  } else if (env.WHATSAPP_ACCESS_TOKEN) {
+    const url = await resolveWhatsAppMediaUrl(mediaId, env.WHATSAPP_ACCESS_TOKEN);
+    const downloaded = await fetchMedia(url, env.WHATSAPP_ACCESS_TOKEN, "audio");
+    buffer = downloaded.buffer;
+    mimeType = downloaded.mimeType;
+  } else {
+    await replyToSeller(message, deps, "Voice notes are not available right now. Please send text.");
+    return;
+  }
+
+  try {
+    validateMimeType(mimeType, "audio");
+    validateMediaSize(buffer.length, "audio");
+  } catch {
+    await replyToSeller(message, deps, "That voice note format is not supported. Please send text.");
+    return;
+  }
+
+  let transcript = "";
+  const result = await stt.transcribe({ buffer, mimeType, languageHint: "hi" });
+  transcript = (result.text ?? "").trim();
+  const durationSeconds = result.durationSeconds;
+  const minutes = durationSeconds ? durationSeconds / 60 : 0;
+  const costPaise = Math.ceil(minutes) * costPerMinute;
+  await recordCost({
+    shopId: message.shopId,
+    provider: stt.name,
+    model: stt.model,
+    kind: "STT",
+    outcome: "SUCCESS",
+    voiceMinutes: minutes,
+    costPaise,
+  });
+
+  if (!transcript) {
+    await replyToSeller(message, deps, "I could not understand that voice note. Please send it as text.");
+    return;
+  }
+
+  const textMessage: InboxMessage = {
+    ...message,
+    messageType: "TEXT",
+    body: { from: phone, type: "text", text: { body: transcript } },
+  };
+  await handleText(textMessage, deps);
+}
+
+function mediaIdFromMessage(body: Record<string, unknown>): string | null {
+  const audio = body.audio as { id?: unknown } | undefined;
+  if (audio && typeof audio.id === "string" && audio.id.length > 0) return audio.id;
+  const voice = body.voice as { id?: unknown } | undefined;
+  if (voice && typeof voice.id === "string" && voice.id.length > 0) return voice.id;
+  return null;
+}
+
 async function handleMessage(message: InboxMessage, deps: InboundDeps): Promise<void> {
   switch (message.messageType) {
     case "TEXT":
       await handleText(message, deps);
+      return;
+    case "AUDIO":
+      await handleAudio(message, deps);
       return;
     case "INTERACTIVE":
       await handleInteractive(message, deps);

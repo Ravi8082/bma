@@ -139,6 +139,22 @@ export function validateMagicBytes(buffer: Buffer, mimeType: string): void {
  * Fetch media from a Meta URL with SSRF protection.
  * Redirects are disallowed (redirect: "error").
  */
+/**
+ * Resolve a WhatsApp media id to a downloadable URL using the Graph API.
+ * Returns the URL string. Caller must still validate and fetch via fetchMedia.
+ */
+export async function resolveWhatsAppMediaUrl(mediaId: string, accessToken: string): Promise<string> {
+  const response = await fetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(mediaId)}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    throw new MediaFetchError("MEDIA_FETCH_FAILED", `media metadata HTTP ${response.status}`);
+  }
+  const data = (await response.json()) as { url?: string };
+  if (!data.url) throw new MediaFetchError("MEDIA_FETCH_FAILED", "media metadata missing url");
+  return data.url;
+}
+
 export async function fetchMedia(
   url: string,
   accessToken: string,

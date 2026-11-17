@@ -58,6 +58,7 @@ const envSchema = z
     LLM_COST_PAISE_PER_CALL: z.coerce.number().int().min(0).default(25),
     STT_PROVIDER: z.enum(["stub", "whisper"]).default("stub"),
     STT_API_KEY: z.string().optional(),
+    STT_COST_PAISE_PER_MINUTE: z.coerce.number().int().min(0).default(100),
 
     /** Free-pilot ceilings. Never converted into a payment request. */
     PILOT_DAILY_CAP_PAISE: z.coerce.number().int().positive().default(5_000),
